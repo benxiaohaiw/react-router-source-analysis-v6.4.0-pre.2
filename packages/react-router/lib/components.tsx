@@ -50,25 +50,34 @@ export interface RouterProviderProps {
 }
 
 /**
+ * 给定一个 Remix Router 实例，渲染适当的 UI // +++
  * Given a Remix Router instance, render the appropriate UI
  */
-export function RouterProvider({
-  fallbackElement,
-  router,
+export function RouterProvider({ // RouterProvider函数式组件 // +++
+  fallbackElement, // props中的fallbackElement
+  router, // props中的router
 }: RouterProviderProps): React.ReactElement {
+  // 将路由器状态同步到我们的组件状态以强制重新渲染 // +++
   // Sync router state to our component state to force re-renders
   let state: RouterState = useSyncExternalStoreShim(
-    router.subscribe,
-    () => router.state,
+    router.subscribe, // 订阅函数
+    () => router.state, // 获取快照函数
     // We have to provide this so React@18 doesn't complain during hydration,
     // but we pass our serialized hydration data into the router so state here
     // is already synced with what the server saw
     () => router.state
   );
+  // 其实就是react 18中的useSyncExternalStore hook，这个hook内部就是使用useEffect hook
+  // 所以最终效果是【异步宏任务】中去执行关于useEffect的destroy函数和create函数
+  // 那么也就是在其中执行了router.subscribe函数并且传入了一个handleStoreChange参数函数 - 这个函数内部包含forceUpdate函数
+  // 所以在路由器对象的subscribers数组中将存入handleStoreChange函数 // +++
 
+  // 计算出一个navigator对象 // +++
   let navigator = React.useMemo((): Navigator => {
     return {
       createHref: router.createHref,
+      // +++
+      // 使用的都是路由器对象的navigate函数 // +++
       go: (n) => router.navigate(n),
       push: (to, state, opts) =>
         router.navigate(to, {
@@ -77,33 +86,36 @@ export function RouterProvider({
         }),
       replace: (to, state, opts) =>
         router.navigate(to, {
-          replace: true,
+          replace: true, // replace参数为true
           state,
           preventScrollReset: opts?.preventScrollReset,
         }),
     };
   }, [router]);
 
+  // 路由器对象的basename属性，没有则默认为/
   let basename = router.basename || "/";
 
   return (
-    <DataRouterContext.Provider
-      value={{
-        router,
-        navigator,
-        static: false,
+    <DataRouterContext.Provider // 数据路由器上下文
+      value={{ // 提供的值对象
+        router, // 路由器
+        navigator, // 导航器
+        static: false, // 不是静态的
         // Do we need this?
-        basename,
+        basename, // 基础名
       }}
     >
-      <DataRouterStateContext.Provider value={state}>
+      <DataRouterStateContext.Provider value={state} /** 提供的值对象 - 其实就是路由器的state对象 */> {/** 数据路由器状态上下文 */}
+        {/** 路由器函数式组件 */}
         <Router
           basename={router.basename}
           location={router.state.location}
           navigationType={router.state.historyAction}
-          navigator={navigator}
+          navigator={navigator} /** 上面计算出来的【导航器】 */
         >
-          {router.state.initialized ? <Routes /> : fallbackElement}
+          {/* 根据路由器状态是否已初始化 */}
+          {router.state.initialized ? <Routes /> /** 路由函数式组件 */ : fallbackElement /** 回退元素 */}
         </Router>
       </DataRouterStateContext.Provider>
     </DataRouterContext.Provider>
@@ -217,8 +229,8 @@ export interface OutletProps {
  *
  * @see https://reactrouter.com/docs/en/v6/components/outlet
  */
-export function Outlet(props: OutletProps): React.ReactElement | null {
-  return useOutlet(props.context);
+export function Outlet(props: OutletProps): React.ReactElement | null { // Outlet函数式组件 // <Outlet />
+  return useOutlet(props.context /** undefined */); // 直接使用useOutlet hook // +++
 }
 
 export interface PathRouteProps {
@@ -293,7 +305,7 @@ export function Router({
   navigationType = NavigationType.Pop,
   navigator,
   static: staticProp = false,
-}: RouterProps): React.ReactElement | null {
+}: RouterProps): React.ReactElement | null { // 路由器函数式组件
   invariant(
     !useInRouterContext(),
     `You cannot render a <Router> inside another <Router>.` +
@@ -302,14 +314,24 @@ export function Router({
 
   // Preserve trailing slashes on basename, so we can let the user control
   // the enforcement of trailing slashes throughout the app
-  let basename = basenameProp.replace(/^\/*/, "/");
+  let basename = basenameProp.replace(/^\/*/, "/"); // 确保开头有且只有一个/ // +++
+
+  // 计算导航上下文值对象
   let navigationContext = React.useMemo(
     () => ({ basename, navigator, static: staticProp }),
     [basename, navigator, staticProp]
   );
 
   if (typeof locationProp === "string") {
-    locationProp = parsePath(locationProp);
+    locationProp = parsePath(locationProp); // 解析路径
+    /* 
+    {
+      pathname
+      search
+      hash
+      ...
+    }
+    */
   }
 
   let {
@@ -320,13 +342,17 @@ export function Router({
     key = "default",
   } = locationProp;
 
+  // 计算出来的位置对象
   let location = React.useMemo(() => {
+    // 脱掉基础名
     let trailingPathname = stripBasename(pathname, basename);
 
+    // +++
     if (trailingPathname == null) {
       return null;
     }
 
+    // +++
     return {
       pathname: trailingPathname,
       search,
@@ -343,13 +369,14 @@ export function Router({
       `basename, so the <Router> won't render anything.`
   );
 
+  // +++
   if (location == null) {
     return null;
   }
 
   return (
-    <NavigationContext.Provider value={navigationContext}>
-      <LocationContext.Provider
+    <NavigationContext.Provider value={navigationContext}> {/** 导航上下文 */}
+      <LocationContext.Provider /** 位置上下文 */
         children={children}
         value={{ location, navigationType }}
       />
@@ -371,16 +398,18 @@ export interface RoutesProps {
 export function Routes({
   children,
   location,
-}: RoutesProps): React.ReactElement | null {
-  let dataRouterContext = React.useContext(DataRouterContext);
+}: RoutesProps): React.ReactElement | null { // 路由函数式组件
+  let dataRouterContext = React.useContext(DataRouterContext); // 使用数据路由器上下文 // +++
   // When in a DataRouterContext _without_ children, we use the router routes
   // directly.  If we have children, then we're in a descendant tree and we
   // need to use child routes.
   let routes =
-    dataRouterContext && !children
-      ? (dataRouterContext.router.routes as DataRouteObject[])
+    dataRouterContext && !children // 在RouterProvider函数式组件中直接就是<Routes />，所以对于此函数式组件来讲是没有孩子的 // +++
+      ? (dataRouterContext.router.routes as DataRouteObject[]) // 那么直接就是路由器对象的routes - 也就是路由器对象中的【数据路由】数组 // +++
       : createRoutesFromChildren(children);
-  return useRoutes(routes, location);
+  
+  // useRoutes hook
+  return useRoutes(routes /** 路由器对象中的数据路由数组 - dataRoutes */, location /** undefined - props中也没有传递location属性，因为上面说了是直接<Routes />的 */);
 }
 
 export interface AwaitResolveRenderFunction {
@@ -614,17 +643,21 @@ export function renderMatches(
  * Walk the route tree and add hasErrorBoundary if it's not provided, so that
  * users providing manual route arrays can just specify errorElement
  */
-export function enhanceManualRouteObjects(
+export function enhanceManualRouteObjects( // 遍历路由树并添加hasErrorBoundary（如果没有提供hasErrorBoundary），以便提供手动路由数组的用户可以只指定errorElement
   routes: RouteObject[]
 ): RouteObject[] {
+  // 遍历
   return routes.map((route) => {
-    let routeClone = { ...route };
+    let routeClone = { ...route }; // 浅拷贝
+    // 是否有错误边界
     if (routeClone.hasErrorBoundary == null) {
       routeClone.hasErrorBoundary = routeClone.errorElement != null;
     }
+    // 对其孩子再次进行 // +++
     if (routeClone.children) {
-      routeClone.children = enhanceManualRouteObjects(routeClone.children);
+      routeClone.children = enhanceManualRouteObjects(routeClone.children); // 递归处理
     }
+    // 返回浅拷贝后的对象
     return routeClone;
   });
 }

@@ -260,22 +260,39 @@ export interface AgnosticRouteMatch<
 export interface AgnosticDataRouteMatch
   extends AgnosticRouteMatch<string, AgnosticDataRouteObject> {}
 
+// +++
+// 是否为下标路由 // +++
 function isIndexRoute(
   route: AgnosticRouteObject
 ): route is AgnosticIndexRouteObject {
-  return route.index === true;
+  return route.index === true; // 直接取出路由的index属性是为===true // +++
 }
 
+// +++
+// 遍历路由树，在必要的地方生成唯一的id，这样我们就可以单独使用路由器中的AgnosticDataRouteObject // AgnosticDataRouteObject: 不可知的数据路由对象 // +++
 // Walk the route tree generating unique IDs where necessary so we are working
 // solely with AgnosticDataRouteObject's within the Router
-export function convertRoutesToDataRoutes(
+export function convertRoutesToDataRoutes( // 转换路由为【数据路由】 // Agnostic: 不可知论者
   routes: AgnosticRouteObject[],
-  parentPath: number[] = [],
-  allIds: Set<string> = new Set<string>()
+  parentPath: number[] = [], // 父路径 - 默认为空数组
+  allIds: Set<string> = new Set<string>() // 所有的id - 默认为一个空set
 ): AgnosticDataRouteObject[] {
+  // 直接遍历路由
   return routes.map((route, index) => {
-    let treePath = [...parentPath, index];
+    let treePath = [...parentPath, index]; // 下标
+
+    // 如果route上有id属性则直接使用id属性值
+    // 若没有则使用treePath然后使用'-'做join拼接 // +++
     let id = typeof route.id === "string" ? route.id : treePath.join("-");
+
+    /* 
+    [...[], 0] -> [0]
+    [...[], 0].join('-') -> '0'
+
+    [...[], 0, 1] -> [0, 1]
+    [...[], 0, 1].join('-') -> '0-1'
+    */
+    
     invariant(
       route.index !== true || !route.children,
       `Cannot specify children on an index route`
@@ -285,12 +302,24 @@ export function convertRoutesToDataRoutes(
       `Found a route id collision on id "${id}".  Route ` +
         "id's must be globally unique within Data Router usages"
     );
-    allIds.add(id);
 
+    // set集合内增加这个id // +++
+    allIds.add(id); // 主要是为了做上面的【唯一】筛查的
+
+    // 当前路由使用下标路由
+    /* 
+    // 是否为下标路由 // +++
+    function isIndexRoute(
+      route: AgnosticRouteObject
+    ): route is AgnosticIndexRouteObject {
+      return route.index === true; // 直接取出路由的【index属性】是为===true // +++
+    }
+    */
     if (isIndexRoute(route)) {
-      let indexRoute: AgnosticDataIndexRouteObject = { ...route, id };
-      return indexRoute;
+      let indexRoute: AgnosticDataIndexRouteObject = { ...route, id }; // 浅拷贝 - 然后增加id属性
+      return indexRoute; // 返回
     } else {
+      // 不是下标路由则准备这个对象 - 也是浅拷贝 - 增加id属性 - 然后对路由的children再次进行递归性的convertRoutesToDataRoutes函数的执行
       let pathOrLayoutRoute: AgnosticDataNonIndexRouteObject = {
         ...route,
         id,
@@ -298,12 +327,15 @@ export function convertRoutesToDataRoutes(
           ? convertRoutesToDataRoutes(route.children, treePath, allIds)
           : undefined,
       };
+
+      // 返回对象
       return pathOrLayoutRoute;
     }
   });
 }
 
 /**
+ * 将给定的路由匹配到某个location并返回匹配数据。 // +++
  * Matches the given routes to a location and returns the match data.
  *
  * @see https://reactrouter.com/docs/en/v6/utils/match-routes
@@ -313,34 +345,472 @@ export function matchRoutes<
 >(
   routes: RouteObjectType[],
   locationArg: Partial<Location> | string,
-  basename = "/"
+  basename = "/" // 默认值为'/' // +++
 ): AgnosticRouteMatch<string, RouteObjectType>[] | null {
+
+  // 是字符串将进行解析为{ pathname, search, hash }对象
+  // 不是则直接使用
   let location =
     typeof locationArg === "string" ? parsePath(locationArg) : locationArg;
 
+  // 脱掉基础名字 // +++
   let pathname = stripBasename(location.pathname || "/", basename);
 
+  // export function stripBasename( // 脱掉基础名字
+  //   pathname: string,
+  //   basename: string
+  // ): string | null {
+
+  //   // basename为/则直接返回
+  //   if (basename === "/") return pathname;
+
+  //   // 两者都转为小写 - 然后前者不是以后者为开头的则直接返回null
+  //   if (!pathname.toLowerCase().startsWith(basename.toLowerCase())) {
+  //     return null;
+  //   }
+
+  //   // 我们希望在用户的控件中保留尾随斜杠行为，因此如果用户指定一个带尾随斜杠的基名，我们应该支持它 // +++
+  //   // We want to leave trailing slash behavior in the user's control, so if they
+  //   // specify a basename with a trailing slash, we should support it
+  //   let startIndex = basename.endsWith("/")
+  //     ? basename.length - 1
+  //     : basename.length;
+  //   // 后者是否以/结尾 ? 那么开始下标将保留这个/ : 那么直接跳过这个basename
+
+  //   // 取出下一个字符
+  //   let nextChar = pathname.charAt(startIndex);
+
+  //   // 存在且不为/ - 那么说明pathname不以 basename/ 开头的
+  //   if (nextChar && nextChar !== "/") {
+  //     // 路径名不以 basename/ 开头
+  //     // pathname does not start with basename/
+  //     return null;
+  //   }
+
+  //   // 直接提取剩下的 - 若为空串则回退为/
+  //   return pathname.slice(startIndex) || "/";
+  // }
+
+  // 这里的pathname为null则直接返回null // +++
   if (pathname == null) {
     return null;
   }
 
-  let branches = flattenRoutes(routes);
-  rankRouteBranches(branches);
+  /* 
+  routes
+  [
+    {
+      path: '/',
+      element: <Root />,
+      errorElement: <ErrorPage />,
+      hasErrorBoundary: true,
+      id: '0',
+      children: [
+        {
+          path: 'contacts/:contactId',
+          element: <Contact />,
+          hasErrorBoundary: false,
+          id: '0-0'
+        },
+      ],
+    },
+  ]
+  */
+
+  /* 
+  dataRoutes
+  [
+    {
+      path: '/',
+      element: <Root />,
+      hasErrorBoundary: false,
+      id: '0',
+      children: [
+        {
+          path: 'a',
+          element: <A />,
+          hasErrorBoundary: false,
+          id: '0-0',
+          children: [
+            {
+              path: 'b/:xxx',
+              element: <B />,
+              hasErrorBoundary: false,
+              id: '0-0-0',
+            }
+          ]
+        },
+        {
+          path: 'c',
+          element: <C />,
+          hasErrorBoundary: false,
+          id: '0-1',
+        },
+      ],
+    },
+    {
+      path: '/d',
+      element: <D />,
+      hasErrorBoundary: false,
+      id: '1',
+    },
+  ]
+  */
+
+  // 扁平化路由
+  let branches = flattenRoutes(routes); // 其它的参数则采用默认值 // +++
+  /* 
+    深度优先 // +++
+    先孩子 - 再自身
+  */
+  
+  /* 
+  branches
+  [
+    {
+      path: '/contacts/:contactId',
+      score: 17,
+      routesMeta: [
+        {
+          relativePath: '/'
+          caseSensitive: false,
+          childrenIndex: 0,
+          route, // 原路由对象
+        },
+        {
+          relativePath: 'contacts/:contactId'
+          caseSensitive: false,
+          childrenIndex: 0,
+          route, // 原路由对象
+        },
+      ]
+    },
+    {
+      path: '/',
+      score: 4,
+      routesMeta: [
+        {
+          relativePath: '/'
+          caseSensitive: false,
+          childrenIndex: 0,
+          route, // 原路由对象
+        },
+      ]
+    },
+  ]
+  */
+
+  /* 
+  branches
+  [
+    {
+      path: '/a/b/:xxx',
+      score: 28, // '' a b :xxx -> 
+      routesMeta: [
+        {
+          relativePath: '/'
+          caseSensitive: false,
+          childrenIndex: 0,
+          route, // 原路由对象
+        },
+        {
+          relativePath: 'a'
+          caseSensitive: false,
+          childrenIndex: 0,
+          route, // 原路由对象
+        },
+        {
+          relativePath: 'b/:xxx'
+          caseSensitive: false,
+          childrenIndex: 0,
+          route, // 原路由对象
+        },
+      ]
+    },
+    {
+      path: '/a',
+      score: 13,
+      routesMeta: [
+        {
+          relativePath: '/'
+          caseSensitive: false,
+          childrenIndex: 0,
+          route, // 原路由对象
+        },
+        {
+          relativePath: 'a'
+          caseSensitive: false,
+          childrenIndex: 0,
+          route, // 原路由对象
+        },
+      ]
+    },
+    {
+      path: '/c',
+      score: 13,
+      routesMeta: [
+        {
+          relativePath: '/'
+          caseSensitive: false,
+          childrenIndex: 0,
+          route, // 原路由对象
+        },
+        {
+          relativePath: 'c'
+          caseSensitive: false,
+          childrenIndex: 1,
+          route, // 原路由对象
+        },
+      ]
+    },
+    {
+      path: '/',
+      score: 4,
+      routesMeta: [
+        {
+          relativePath: '/'
+          caseSensitive: false,
+          childrenIndex: 0,
+          route, // 原路由对象
+        },
+      ]
+    },
+    {
+      path: '/d',
+      score: 13,
+      routesMeta: [
+        {
+          relativePath: '/d'
+          caseSensitive: false,
+          childrenIndex: 1,
+          route, // 原路由对象
+        },
+      ]
+    },
+  ]
+  */
+
+  // 排序
+  /* 
+  分值不等直接高分优先
+  相等则
+    compareIndexes( // 实际上是查看这两个分支是否为兄弟路由，若是则谁所在的下标靠前那么谁就在前面，若不是则位置不会进行变化的 // +++
+      // 每个分支对象的routesMeta属性直接映射出下标
+      a.routesMeta.map((meta) => meta.childrenIndex), // 下标 -> [0, 0]
+      b.routesMeta.map((meta) => meta.childrenIndex) // -> [0]
+    )
+  */
+  
+  /* 
+  [0, 1].sort((a, b) => a - b) -> [0, 1]
+  */
+  rankRouteBranches(branches); // 对【每个branch对象】进行处理排序 // +++
+
+  /* 
+  branches
+  [
+    {
+      path: '/contacts/:contactId',
+      score: 17,
+      routesMeta: [
+        {
+          relativePath: '/'
+          caseSensitive: false,
+          childrenIndex: 0,
+          route, // 原路由对象
+        },
+        {
+          relativePath: 'contacts/:contactId'
+          caseSensitive: false,
+          childrenIndex: 0,
+          route, // 原路由对象
+        },
+      ]
+    },
+    {
+      path: '/',
+      score: 4,
+      routesMeta: [
+        {
+          relativePath: '/'
+          caseSensitive: false,
+          childrenIndex: 0,
+          route, // 原路由对象
+        },
+      ]
+    },
+  ]
+  */
+
+  /* 
+  branches
+  [
+    {
+      path: '/a/b/:xxx',
+      score: 28, // '' a b :xxx -> 4+1+10+10+3 -> 28
+      routesMeta: [
+        {
+          relativePath: '/'
+          caseSensitive: false,
+          childrenIndex: 0,
+          route, // 原路由对象
+        },
+        {
+          relativePath: 'a'
+          caseSensitive: false,
+          childrenIndex: 0,
+          route, // 原路由对象
+        },
+        {
+          relativePath: 'b/:xxx'
+          caseSensitive: false,
+          childrenIndex: 0,
+          route, // 原路由对象
+        },
+      ]
+    },
+    {
+      path: '/a',
+      score: 13,
+      routesMeta: [
+        {
+          relativePath: '/'
+          caseSensitive: false,
+          childrenIndex: 0,
+          route, // 原路由对象
+        },
+        {
+          relativePath: 'a'
+          caseSensitive: false,
+          childrenIndex: 0,
+          route, // 原路由对象
+        },
+      ]
+    },
+    {
+      path: '/c',
+      score: 13,
+      routesMeta: [
+        {
+          relativePath: '/'
+          caseSensitive: false,
+          childrenIndex: 0,
+          route, // 原路由对象
+        },
+        {
+          relativePath: 'c'
+          caseSensitive: false,
+          childrenIndex: 1,
+          route, // 原路由对象
+        },
+      ]
+    },
+    // compareIndexes([0, 0], [0, 1]) -> 是兄弟路由 -> 那么谁所在下标靠前那么谁就在前 -> 0-1 -> 自然/a在/c的前面
+    {
+      path: '/d',
+      score: 13,
+      routesMeta: [
+        {
+          relativePath: '/d'
+          caseSensitive: false,
+          childrenIndex: 1,
+          route, // 原路由对象
+        },
+      ]
+    },
+    {
+      path: '/',
+      score: 4,
+      routesMeta: [
+        {
+          relativePath: '/'
+          caseSensitive: false,
+          childrenIndex: 0,
+          route, // 原路由对象
+        },
+      ]
+    },
+  ]
+  */
 
   let matches = null;
-  for (let i = 0; matches == null && i < branches.length; ++i) {
+  // ++++++
+  // 注意当前这个for循环（一旦matches有值了则直接退出for循环，然后把结果值返回就可啦 ~） // +++
+  // ++++++
+  for (let i = 0; matches == null && i < branches.length; ++i) { // 条件为matches==null && branches.length // +++
+
+    // 匹配路由分支 // +++
     matches = matchRouteBranch<string, RouteObjectType>(
+      // 每个分支
       branches[i],
+      /* 
+      举例：
+      {
+        path: '/a/b/:xxx',
+        score: 28, // '' a b :xxx -> 4+1+10+10+3 -> 28
+        routesMeta: [
+          {
+            relativePath: '/'
+            caseSensitive: false,
+            childrenIndex: 0,
+            route, // 原路由对象
+          },
+          {
+            relativePath: 'a'
+            caseSensitive: false,
+            childrenIndex: 0,
+            route, // 原路由对象
+          },
+          {
+            relativePath: 'b/:xxx'
+            caseSensitive: false,
+            childrenIndex: 0,
+            route, // 原路由对象
+          },
+        ]
+      },
+      */
       // Incoming pathnames are generally encoded from either window.location
       // or from router.navigate, but we want to match against the unencoded
       // paths in the route definitions.  Memory router locations won't be
       // encoded here but there also shouldn't be anything to decode so this
       // should be a safe operation.  This avoids needing matchRoutes to be
       // history-aware.
-      safelyDecodeURI(pathname)
+      safelyDecodeURI(pathname) // 安全的解码pathname // +++ decodeURI api
+      // 举例：/a/b/223
     );
   }
 
+  /* 
+  /a/b/223
+  matches
+  {
+    params: {
+      xxx: 223
+    },
+    pathname: '/',
+    pathnameBase: '/',
+    route原对象
+  }
+  {
+    params: {
+      xxx: 223
+    },
+    pathname: '/a/',
+    pathnameBase: '/a',
+    route原对象
+  }
+  {
+    params: {
+      xxx: 223
+    },
+    pathname: '/a/b/223',
+    pathnameBase: '/a/b/223',
+    route原对象
+  }
+  */
+
+  // 返回matches // +++
   return matches;
 }
 
@@ -361,40 +831,61 @@ interface RouteBranch<
   routesMeta: RouteMeta<RouteObjectType>[];
 }
 
+// 扁平化路由 // +++
 function flattenRoutes<
   RouteObjectType extends AgnosticRouteObject = AgnosticRouteObject
 >(
   routes: RouteObjectType[],
-  branches: RouteBranch<RouteObjectType>[] = [],
-  parentsMeta: RouteMeta<RouteObjectType>[] = [],
-  parentPath = ""
+  branches: RouteBranch<RouteObjectType>[] = [], // 默认值空数组 // +++
+  parentsMeta: RouteMeta<RouteObjectType>[] = [], // 默认值空数组 // +++
+  parentPath = "" // 默认值空串 // +++
 ): RouteBranch<RouteObjectType>[] {
+
+  // 直接遍历这个routes数组 // +++
   routes.forEach((route, index) => {
+
+    // 准备meta对象
     let meta: RouteMeta<RouteObjectType> = {
-      relativePath: route.path || "",
-      caseSensitive: route.caseSensitive === true,
-      childrenIndex: index,
-      route,
+      relativePath: route.path || "", // 相对路径 - 就是路由对象的path属性 // +++
+      caseSensitive: route.caseSensitive === true, // 是否区分大小写
+      childrenIndex: index, // 当前这个route所在数组的下标
+      route, // 整个的route对象 // +++
     };
 
+    // 看一下这个相对路径是否以/开始的
     if (meta.relativePath.startsWith("/")) {
+      // invariant: 不变的
+      // value是false 或为 null 或 此值是一个undefined - 那么直接把message封装为一个Error类实例对象然后throw出去 // +++
       invariant(
-        meta.relativePath.startsWith(parentPath),
+        meta.relativePath.startsWith(parentPath), // 是否以空串''开始的
         `Absolute route path "${meta.relativePath}" nested under path ` +
           `"${parentPath}" is not valid. An absolute child route path ` +
           `must start with the combined path of all its parent routes.`
       );
 
+      // 去除父路径 // +++
       meta.relativePath = meta.relativePath.slice(parentPath.length);
     }
 
-    let path = joinPaths([parentPath, meta.relativePath]);
-    let routesMeta = parentsMeta.concat(meta);
+    // 拼接路径 // +++
+    let path = joinPaths([parentPath, meta.relativePath]); // ++++++ 拼接
+    /* 
+    export const joinPaths = (paths: string[]): string =>
+      paths.join("/").replace(/\/\/+/g, "/");
+    // 拼接路径 // +++
+    // 以/连接形成字符串，之后全局替换//一个或多个为/
+
+    ['', '/'].join('/') -> '//'
+    */
+
+    // +++
+    // 注意这里使用的是concat函数 - 它会返回一个【新的数组引用】 // +++
+    let routesMeta = parentsMeta.concat(meta); // ++++++ 连接
 
     // Add the children before adding this route to the array so we traverse the
     // route tree depth-first and child routes appear before their parents in
     // the "flattened" version.
-    if (route.children && route.children.length > 0) {
+    if (route.children && route.children.length > 0) { // 当前route是有孩子的 // +++
       invariant(
         // Our types know better, but runtime JS may not!
         // @ts-expect-error
@@ -403,80 +894,116 @@ function flattenRoutes<
           `all child routes from route path "${path}".`
       );
 
-      flattenRoutes(route.children, branches, routesMeta, path);
+      /* 
+      深度优先 // +++
+      先孩子 - 再自身
+      */
+
+      // 那么则递归性的再次扁平化路由 // +++
+      flattenRoutes(route.children, branches, routesMeta /** 连接 - 【新的数组引用】 */, path /** 拼接 */); // 递归执行flattenRoutes - 其它参数是处理后的 // +++
     }
 
     // Routes without a path shouldn't ever match by themselves unless they are
     // index routes, so don't add them to the list of possible branches.
-    if (route.path == null && !route.index) {
+    if (route.path == null && !route.index) { // 查看路由的path==null 且 路由对象没有index属性 - 则直接return // +++
       return;
     }
 
-    branches.push({ path, score: computeScore(path, route.index), routesMeta });
+    // 最终这里直接把准备的【分支对象】推入branches数组中啦 ~
+    branches.push({ path /** 拼接后的 */, score: computeScore(path, route.index) /** 计算得分（根据path以/分割的部分计算最终得分） +++ */, routesMeta /** 连接后的 - 【新的数组引用】 */ });
   });
 
+  // 返回这个分支数组 // +++
   return branches;
 }
 
+// 排序 // +++
 function rankRouteBranches(branches: RouteBranch[]): void {
   branches.sort((a, b) =>
-    a.score !== b.score
-      ? b.score - a.score // Higher score first
+    a.score !== b.score // 不一样的比分值
+      ? b.score - a.score // Higher score first // 高分优先
+      // 分值一样的比较下标 // +++
       : compareIndexes(
-          a.routesMeta.map((meta) => meta.childrenIndex),
+          // 每个分支对象的routesMeta属性直接映射出下标
+          a.routesMeta.map((meta) => meta.childrenIndex), // 下标
           b.routesMeta.map((meta) => meta.childrenIndex)
         )
   );
+  /* 
+  [0, 1].sort((a, b) => a - b) -> [0, 1]
+  */
 }
 
-const paramRe = /^:\w+$/;
-const dynamicSegmentValue = 3;
-const indexRouteValue = 2;
-const emptySegmentValue = 1;
-const staticSegmentValue = 10;
-const splatPenalty = -2;
-const isSplat = (s: string) => s === "*";
+// 动态参数正则表达式 // +++
+// \w代表任意的字母、数字、下划线
+const paramRe = /^:\w+$/; // 以:开始且后面是要有一个或多个然后结尾的 // +++
+const dynamicSegmentValue = 3; // 动态部分值
+const indexRouteValue = 2; // 下标路由值
+const emptySegmentValue = 1; // 空部分值
+const staticSegmentValue = 10; // 静态部分值
+const splatPenalty = -2; // 惩罚 // +++
+const isSplat = (s: string) => s === "*"; // 是*
 
+// 计算得分 // +++
 function computeScore(path: string, index: boolean | undefined): number {
-  let segments = path.split("/");
-  let initialScore = segments.length;
+  // 首先以/进行分割
+  let segments = path.split("/"); // 得到【部分】数组
+  /* 
+  '/'.split('/') -> ['', '']
+  '/contacts/:contactId'.split('/') -> ['', 'contacts', ':contactId']
+  */
+
+  let initialScore = segments.length; // 首先以数组的长度为初始分值 // +++
+  // 查看【部分】数组中是否有*片段 // +++
   if (segments.some(isSplat)) {
-    initialScore += splatPenalty;
+    initialScore += splatPenalty; // 那么直接惩罚（降低）分值 // +++
   }
 
+  // 是否为下标路由
   if (index) {
-    initialScore += indexRouteValue;
+    initialScore += indexRouteValue; // 分值增加【下标路由值】
   }
 
+  // 直接过滤然后统计最终分值
   return segments
-    .filter((s) => !isSplat(s))
-    .reduce(
+    .filter((s) => !isSplat(s)) // 过滤出不是*片段的
+    .reduce( // 然后做统计
       (score, segment) =>
         score +
-        (paramRe.test(segment)
-          ? dynamicSegmentValue
-          : segment === ""
-          ? emptySegmentValue
-          : staticSegmentValue),
-      initialScore
+        (paramRe.test(segment) // 是动态参数部分
+          ? dynamicSegmentValue // 增加动态部分值
+          : segment === "" // 片段是否为空串
+          ? emptySegmentValue // 增加空串片段值
+          : staticSegmentValue), // 增加静态片段值 // +++
+      initialScore // 以现在的初始分值为初始值
     );
 }
 
+// 比较下标
 function compareIndexes(a: number[], b: number[]): number {
+  // 这两个分支是否为兄弟 // +++
   let siblings =
+  // 查看两数组长度是否相等 且 前者去除最后一个元素的前部分的每一个值都与后者元素是相等的 - 此时才认为是兄弟路由
     a.length === b.length && a.slice(0, -1).every((n, i) => n === b[i]);
 
+  /* 
+  [0, 1].sort((a, b) => a - b) -> [0, 1]
+  */
+
   return siblings
+    // 如果两条路由是兄弟路由，我们应该先尝试匹配较早的兄弟路由。这允许人们对匹配行为进行细粒度控制，只需将具有相同路径的路由按他们希望尝试的顺序放置即可。
     ? // If two routes are siblings, we should try to match the earlier sibling
       // first. This allows people to have fine-grained control over the matching
       // behavior by simply putting routes with identical paths in the order they
       // want them tried.
-      a[a.length - 1] - b[b.length - 1]
+      a[a.length - 1] - b[b.length - 1] // 前者最后一个索引值 - 后者最后一个索引值 // +++
+      // 否则，按索引对非兄弟姐妹进行排序就没有意义了，所以它们是平等排序的。
     : // Otherwise, it doesn't really make sense to rank non-siblings by index,
       // so they sort equally.
-      0;
+      0; // +++ 那么就不动位置 - 也就是按照之前的位置不需要去动它就好啦 ~ // +++
 }
 
+// 匹配路由分支
 function matchRouteBranch<
   ParamKey extends string = string,
   RouteObjectType extends AgnosticRouteObject = AgnosticRouteObject
@@ -484,44 +1011,223 @@ function matchRouteBranch<
   branch: RouteBranch<RouteObjectType>,
   pathname: string
 ): AgnosticRouteMatch<ParamKey, RouteObjectType>[] | null {
-  let { routesMeta } = branch;
+  let { routesMeta } = branch; // 分支的路由元信息
+  
+  /* 
+  举例：/a/b/223
+  {
+    path: '/a/b/:xxx',
+    score: 28, // '' a b :xxx -> 4+1+10+10+3 -> 28
+    routesMeta: [
+      {
+        relativePath: '/'
+        caseSensitive: false,
+        childrenIndex: 0,
+        route, // 原路由对象
+      },
+      {
+        relativePath: 'a'
+        caseSensitive: false,
+        childrenIndex: 0,
+        route, // 原路由对象
+      },
+      {
+        relativePath: 'b/:xxx'
+        caseSensitive: false,
+        childrenIndex: 0,
+        route, // 原路由对象
+      },
+    ]
+  },
+  */
 
+  // 已匹配的参数
   let matchedParams = {};
-  let matchedPathname = "/";
+  // 已匹配的路径名
+  let matchedPathname = "/"; // 默认值首先是/
+  // 匹配到的结果
   let matches: AgnosticRouteMatch<ParamKey, RouteObjectType>[] = [];
+
+  // +++
+  // routesMeta表示的是这个分支对象所拼接形成的path在嵌套中的结构层次，但它是经过扁平化后的且是处理后的每个meta对象（这个meta对象其实就是对应route对象中一些属性的组合形成的对象 // +++） // +++
+
+  /* 
+  [
+    {
+      relativePath: '/'
+      caseSensitive: false,
+      childrenIndex: 0,
+      route, // 原路由对象
+    },
+    {
+      relativePath: 'a'
+      caseSensitive: false,
+      childrenIndex: 0,
+      route, // 原路由对象
+    },
+    {
+      relativePath: 'b/:xxx'
+      caseSensitive: false,
+      childrenIndex: 0,
+      route, // 原路由对象
+    },
+  ]
+  */
+
+  // for循环直接【遍历路由元信息】 // +++
   for (let i = 0; i < routesMeta.length; ++i) {
+    // 取出元信息对象
     let meta = routesMeta[i];
+    // 当前元信息对象是否为末尾元素
     let end = i === routesMeta.length - 1;
+
+    // 剩余路径名
     let remainingPathname =
-      matchedPathname === "/"
-        ? pathname
-        : pathname.slice(matchedPathname.length) || "/";
+      matchedPathname === "/" // 已匹配的路径名是否为/ // +++
+        ? pathname // 直接pathname // +++
+        : pathname.slice(matchedPathname.length) || "/"; // 否则让pathname直接跳过【已匹配的路径名】matchedPathname // +++
+
+    // 匹配路径
     let match = matchPath(
-      { path: meta.relativePath, caseSensitive: meta.caseSensitive, end },
-      remainingPathname
+      /* 
+      这个meta对象其实就是对应route对象中一些属性的组合形成的对象
+      */
+      { path: meta.relativePath /** 相对路径 - 其实就是路由对象中的path属性值 // +++ */, caseSensitive: meta.caseSensitive /** 是否区分大小写 - 其实就是路由对象的caseSensitive属性值 */, end /** 当前是否为最后元素 */ },
+      remainingPathname // 剩余路径名
     );
 
-    if (!match) return null;
+    /* 
+    {
+      path: '/',
+      caseSensitive: false,
+      end: false
+    }
+    remainingPathname: '/a/b/223'
+    
+    {
+      path: 'a',
+      caseSensitive: false,
+      end: false
+    }
+    remainingPathname: '/a/b/223'
 
-    Object.assign(matchedParams, match.params);
+    {
+      path: 'b/:xxx',
+      caseSensitive: false,
+      end: true
+    }
+    remainingPathname: '/b/223'
+    */
 
+    // +++
+    // 没有匹配到则直接返回null // +++ 这是重点（记住一旦其中任意一个meta对象没有匹配到直接视为返回null // +++） // ++++++
+    if (!match) return null; // ++++++
+
+    /* 
+    [/^\//i, []]
+    [/^\/a(?:(?=\/|$))/i, []] // 严格注意最后面的\/|$表示的是^\/a\/或者^\/a$ // +++ 注意这个必须以a结尾的这个 - 格外要注意啦 ~
+    [/^\/b\/([^\/]+)\/*$/i, ['xxx']]
+    */
+
+    /* 
+    {
+      params: {},
+      pathname: '/'
+      pathnameBase: ''
+      pattern // 上方的对象 // +++
+    }
+    {
+      params: {},
+      pathname: '/a/'
+      pathnameBase: '/a'
+      pattern // 上方的对象 // +++
+    }
+    {
+      params: {
+        xxx: '223'
+      },
+      pathname: '/b/223'
+      pathnameBase: '/b/223'
+      pattern // 上方的对象 // +++
+    }
+
+    这个base实际上就是pathname的结尾/的前部分，若结尾没有/那么直接还是pathname
+    当然对于/b/* -> /b/223来讲这个结论不全面，那么它的base首先按照上述结论改造然后就是去除*实际表示的那一部分，再接着应用上述结论达到最终的结果 -> 这个base就是/b啦 ~ // +++
+
+    *只支持路径的结尾带*表示任意
+    路径中间带*的仅仅只是它的字符本意就是一个*字符
+    如果想在中间表示任意动态可以使用动态参数:xxx来表示，那么它代表除了/之外的其它字符一个或多个啦 ~
+    */
+
+    // 合并params对象 // +++
+    Object.assign(matchedParams, match.params); // 就是动态参数对象 // +++
+
+    // 元信息里存储的路由对象 // +++
     let route = meta.route;
 
+    // 匹配结果推入【准备好的对象】
     matches.push({
       // TODO: Can this as be avoided?
-      params: matchedParams as Params<ParamKey>,
-      pathname: joinPaths([matchedPathname, match.pathname]),
+      params: matchedParams as Params<ParamKey>, // 已匹配的params // +++
+      pathname: joinPaths([matchedPathname, match.pathname]), // 拼接路径 // +++
+      // export const joinPaths = (paths: string[]): string =>
+      //   paths.join("/").replace(/\/\/+/g, "/");
+      // // 拼接路径 // +++
+      // // 以/连接形成字符串，之后全局替换//一个或多个为/
+
+      // 序列化路径名
       pathnameBase: normalizePathname(
-        joinPaths([matchedPathname, match.pathnameBase])
+        joinPaths([matchedPathname, match.pathnameBase]) // 拼接路径
       ),
+      // export const normalizePathname = (pathname: string): string =>
+      //   pathname.replace(/\/+$/, "").replace(/^\/*/, "/");
+      // // 序列化路径名 // +++
+      // // 替换结尾的/一个或多个为空串，之后替换开头的/0个或多个为/
+
+      // 路由对象
       route,
     });
-
-    if (match.pathnameBase !== "/") {
-      matchedPathname = joinPaths([matchedPathname, match.pathnameBase]);
+    /* 
+    {
+      params: {
+        xxx: 223
+      },
+      pathname: '/',
+      pathnameBase: '/',
+      route原对象
     }
+    {
+      params: {
+        xxx: 223
+      },
+      pathname: '/a/',
+      pathnameBase: '/a',
+      route原对象
+    }
+    {
+      params: {
+        xxx: 223
+      },
+      pathname: '/a/b/223',
+      pathnameBase: '/a/b/223',
+      route原对象
+    }
+    */
+
+    // 匹配到的【路径名基础】不是'/'
+    if (match.pathnameBase !== "/") {
+      // 替换更新【已匹配到的路径名】 // +++
+      matchedPathname = joinPaths([matchedPathname, match.pathnameBase]); // 拼接路径 // +++
+    }
+    /* 
+    matchedPathname
+    /
+    /a
+    /a/b/223
+    */
   }
 
+  // 返回匹配的结果 // +++
   return matches;
 }
 
@@ -603,6 +1309,7 @@ type Mutable<T> = {
 };
 
 /**
+ * 对URL路径名执行模式匹配并返回有关匹配的信息。 // +++
  * Performs pattern matching on a URL pathname and returns information about
  * the match.
  *
@@ -614,34 +1321,89 @@ export function matchPath<
 >(
   pattern: PathPattern<Path> | Path,
   pathname: string
-): PathMatch<ParamKey> | null {
+): PathMatch<ParamKey> | null { // 匹配路径名
   if (typeof pattern === "string") {
-    pattern = { path: pattern, caseSensitive: false, end: true };
+    pattern = { path: pattern, caseSensitive: false /** 不区分大小写 */, end: true /** 是最后的 */ };
   }
 
-  let [matcher, paramNames] = compilePath(
+  /* 
+  {
+    path: '/',
+    caseSensitive: false,
+    end: false
+  }
+  remainingPathname: '/a/b/223'
+  
+  {
+    path: 'a',
+    caseSensitive: false,
+    end: false
+  }
+  remainingPathname: '/a/b/223'
+
+  {
+    path: 'b/:xxx',
+    caseSensitive: false,
+    end: true
+  }
+  remainingPathname: '/b/223'
+  */
+
+  // 编译路径 // +++
+  let [matcher /** 正则表达式对象 */, paramNames] = compilePath(
     pattern.path,
     pattern.caseSensitive,
     pattern.end
   );
 
-  let match = pathname.match(matcher);
+  /* 
+  [/^\//i, []]
+  [/^\/a(?:(?=\/|$))/i, []]
+  [/^\/b\/([^\/]+)\/*$/i, ['xxx']]
+  */
+
+  let match = pathname.match(matcher); // 匹配正则表达式 // +++
+
+  // 没有匹配则直接返回null // +++
   if (!match) return null;
 
+  // 第一个匹配到的结果 - 匹配路径名
   let matchedPathname = match[0];
-  let pathnameBase = matchedPathname.replace(/(.)\/+$/, "$1");
-  let captureGroups = match.slice(1);
+
+
+  let pathnameBase = matchedPathname.replace(/(.)\/+$/, "$1"); // (任意字符【一个】)分组1然后是/一个或多个结尾的替换为前面的分组1 - 实际上就是为了去除结尾的/一个或多个的 // +++
+  // +++
+  // 实际上这个基础base就是匹配到的路径名在不包含结尾/一个或多个的结果下的【前部分结果】 // +++
+  // 如果结尾没有/一个或多个，那么这个base就是匹配到的路径名 // 这点要注意！！！ // +++
+
+  // 捕获分组 // +++
+  let captureGroups = match.slice(1); // 提取下标1之后的（包括自身）
+
+  // 统计参数
   let params: Params = paramNames.reduce<Mutable<Params>>(
     (memo, paramName, index) => {
+      // 我们需要在这里使用原始splat值来计算pathnameBase，而不是稍后使用params["*"]，因为它将在那时被解码
       // We need to compute the pathnameBase here using the raw splat value
       // instead of using params["*"] later because it will be decoded then
-      if (paramName === "*") {
+      if (paramName === "*") { // 是* // +++
+        // 先取出值 // +++
         let splatValue = captureGroups[index] || "";
-        pathnameBase = matchedPathname
-          .slice(0, matchedPathname.length - splatValue.length)
-          .replace(/(.)\/+$/, "$1");
-      }
 
+        pathnameBase = matchedPathname
+          .slice(0, matchedPathname.length - splatValue.length) // 是*的话将不包括*表示的那一部分直接使用它的前部分即可
+          .replace(/(.)\/+$/, "$1"); // 然后还是(任意字符【一个】)分组1然后是/一个或多个结尾的替换为前面的分组1 - 实际上就是为了去除结尾的/一个或多个的 // +++
+          // +++
+          // 实际上这个基础base就是匹配到的路径名在不包含结尾/一个或多个的结果下的【前部分结果】 // +++
+          // 如果结尾没有/一个或多个，那么这个base就是匹配到的路径名 // 这点要注意！！！ // +++
+
+
+          // +++
+          // 实际上这里的处理是处理的这个base，因为上面的base是包含*实际表示的那一部分的（比如这里的223它是包含的），那么这里做的的就是去除这一部分（去除223）
+          // 然后结尾有/一个或多个的那么直接采取前部分，若结尾没有那么直接还就是这个 // +++（那么这里又去除/所以按照这个例子（/b/*）的话这里的base就应该是'/b'，而不是上面的'/b/223'（它是在/b/:xxx下形成有的） ~）
+      }
+      // 这里的if并没有return，还是接着下面的memo对象的赋值操作啦 ~
+
+      // +++
       memo[paramName] = safelyDecodeURIComponent(
         captureGroups[index] || "",
         paramName
@@ -651,18 +1413,50 @@ export function matchPath<
     {}
   );
 
+  /* 
+  {
+    params: {},
+    pathname: '/'
+    pathnameBase: ''
+    pattern // 上方的对象 // +++
+  }
+  {
+    params: {},
+    pathname: '/a/'
+    pathnameBase: '/a'
+    pattern // 上方的对象 // +++
+  }
+  {
+    params: {
+      xxx: '223'
+    },
+    pathname: '/b/223'
+    pathnameBase: '/b/223'
+    pattern // 上方的对象 // +++
+  }
+
+  这个base实际上就是pathname的结尾/的前部分，若结尾没有/那么直接还是pathname
+  当然对于/b/* -> /b/223来讲这个结论不全面，那么它的base首先按照上述结论改造然后就是去除*实际表示的那一部分，再接着应用上述结论达到最终的结果 -> 这个base就是/b啦 ~ // +++
+
+  *只支持路径的结尾带*表示任意
+  路径中间带*的仅仅只是它的字符本意就是一个*字符
+  如果想在中间表示任意动态可以使用动态参数:xxx来表示，那么它代表除了/之外的其它字符一个或多个啦 ~
+  */
+
+  // 返回一个对象
   return {
-    params,
-    pathname: matchedPathname,
-    pathnameBase,
-    pattern,
+    params, // 参数
+    pathname: matchedPathname, // 基础名字
+    pathnameBase, // 路径名基础
+    pattern, // pattern对象
   };
 }
 
+// 编译路径 // +++
 function compilePath(
   path: string,
-  caseSensitive = false,
-  end = true
+  caseSensitive = false, // 默认为【不】区分大小写 // +++
+  end = true // 是最后的 // +++
 ): [RegExp, string[]] {
   warning(
     path === "*" || !path.endsWith("*") || path.endsWith("/*"),
@@ -672,28 +1466,65 @@ function compilePath(
       `please change the route path to "${path.replace(/\*$/, "/*")}".`
   );
 
-  let paramNames: string[] = [];
+  // 参数名字
+  let paramNames: string[] = []; // +++
+
+  /* 
+  https://c.runoob.com/front-end/854/
+  https://wangdoc.com/javascript/stdlib/regexp
+  */
+
+  // 正则源 // +++
   let regexpSource =
     "^" +
     path
-      .replace(/\/*\*?$/, "") // Ignore trailing / and /*, we'll handle it below
-      .replace(/^\/*/, "/") // Make sure it has a leading /
-      .replace(/[\\.*+^$?{}|()[\]]/g, "\\$&") // Escape special regex chars
-      .replace(/:(\w+)/g, (_: string, paramName: string) => {
-        paramNames.push(paramName);
-        return "([^\\/]+)";
+      // 替换/* * / // //*【也可以没有】诸如此类【结尾的】为空串
+      .replace(/\/*\*?$/, "") // Ignore trailing / and /*, we'll handle it below // 忽略尾随的 / 和 /*，我们将在下面处理
+      // 替换【开头】/ // ///【也可以没有】诸如此类为'/'
+      .replace(/^\/*/, "/") // Make sure it has a leading / // 确保它有一个领先的 / // ++++++
+      // ''.replace(/^\/*/, '/') -> '/' // ++++++
+
+      /* 
+      *表示0个或多个
+      +表示1个或多个
+      */
+      
+      // 全局替换特殊的正则表达式字符 \ . * + ^ $ ?为转义后的\\ \. \* \+ \^ \$ \?
+      .replace(/[\\.*+^$?{}|()[\]]/g, "\\$&") // Escape special regex chars // 转义特殊的正则表达式字符 \ . * + ^ $ ?
+      // https://wangdoc.com/javascript/stdlib/regexp#stringprototypereplace
+      // $&：匹配的子字符串。
+      /* 
+      https://c.runoob.com/front-end/854/
+
+      /[\.*]/g -> \.* -> 替换为0 -> \00
+      /[\\.*]/g -> \.* -> 替换为0 -> 000
+
+      '\$&' 在字符串中其实是$&
+      '\\$&' 在字符串中其实是\$&
+
+      /[\\.*+?]/g -> +?* -> 替换为\$& -> \+\?\*
+      */
+      .replace(/:(\w+)/g /** :任意字母、数字、下划线一个或以上 - 全局匹配 */, (_: string, paramName: string) => {
+        paramNames.push(paramName); // 收集这个分组1也就是参数名 // +++
+        return "([^\\/]+)"; // 除了/之外的字符一个或以上分组 // +++
+        // https://c.runoob.com/front-end/854/
+        // /([^\/]+)/ -> \.*/ -> 替换为0 -> 0/
       });
 
-  if (path.endsWith("*")) {
-    paramNames.push("*");
+  // +++
+  if (path.endsWith("*")) { // 是否已*结尾 // +++
+    paramNames.push("*"); // 参数名中推入* // +++
     regexpSource +=
-      path === "*" || path === "/*"
-        ? "(.*)$" // Already matched the initial /, just match the rest
-        : "(?:\\/(.+)|\\/*)$"; // Don't include the / in params["*"]
+      path === "*" || path === "/*" // path是* 或者 是/* // +++
+        // 任意字符0个或多个结尾的 // +++
+        ? "(.*)$" // Already matched the initial /, just match the rest // 已经匹配了首字母/，只匹配其余部分
+        // /任意字符一个或多个 或者 /0个或多个 这种结尾的 // +++
+        : "(?:\\/(.+)|\\/*)$"; // Don't include the / in params["*"] // 不要在 params["*"] 中包含 /
   } else if (end) {
+    // 匹配到末尾时，忽略尾部斜杠
     // When matching to the end, ignore trailing slashes
-    regexpSource += "\\/*$";
-  } else if (path !== "" && path !== "/") {
+    regexpSource += "\\/*$"; // \/*$ -> 意为/ // 【也可以没有】结尾的
+  } else if (path !== "" && path !== "/") { // path不是空串 且 不是 '/' // +++
     // If our path is non-empty and contains anything beyond an initial slash,
     // then we have _some_ form of path in our regex so we should expect to
     // match only if we find the end of this path segment.  Look for an optional
@@ -701,19 +1532,49 @@ function compilePath(
     // of the path (if we've matched to the end).  We used to do this with a
     // word boundary but that gives false positives on routes like
     // /user-preferences since `-` counts as a word boundary.
-    regexpSource += "(?:(?=\\/|$))";
+    regexpSource += "(?:(?=\\/|$))"; // 这个y就表示/或者结尾 // +++
+    /* 
+    非捕获组
+
+(?:x)称为非捕获组（Non-capturing group），表示不返回该组匹配的内容，即匹配的结果中不计入这个括号。
+
+非捕获组的作用请考虑这样一个场景，假定需要匹配foo或者foofoo，正则表达式就应该写成/(foo){1, 2}/，但是这样会占用一个组匹配。这时，就可以使用非捕获组，将正则表达式改为/(?:foo){1, 2}/，它的作用与前一个正则是一样的，但是不会单独输出括号内部的内容。
+
+请看下面的例子。
+
+var m = 'abc'.match(/(?:.)b(.)/);
+m // ["abc", "c"]
+上面代码中的模式，一共使用了两个括号。其中第一个括号是非捕获组，所以最后返回的结果中没有第一个括号，只有第二个括号匹配的内容。
+    */
+
+    /* 
+    https://wangdoc.com/javascript/stdlib/regexp#组匹配
+
+    先行断言
+
+x(?=y)称为先行断言（Positive look-ahead），x只有在y前面才匹配，y不会被计入返回结果。比如，要匹配后面跟着百分号的数字，可以写成/\d+(?=%)/。
+
+“先行断言”中，括号里的部分是不会返回的。
+
+var m = 'abc'.match(/b(?=c)/);
+m // ["b"]
+上面的代码使用了先行断言，b在c前面所以被匹配，但是括号对应的c不会被返回。
+    */
   } else {
-    // Nothing to match for "" or "/"
+    // Nothing to match for "" or "/" // 没有匹配""或"/"的内容
   }
 
-  let matcher = new RegExp(regexpSource, caseSensitive ? undefined : "i");
+  // 生成正则表达式对象
+  let matcher = new RegExp(regexpSource, caseSensitive ? undefined : "i" /** 修饰符是否有忽略大小写 // +++ */);
 
+  // 返回匹配器（正则表达式对象实例）和收集到的参数名
   return [matcher, paramNames];
 }
 
+// 安全解码
 function safelyDecodeURI(value: string) {
   try {
-    return decodeURI(value);
+    return decodeURI(value); // +++
   } catch (error) {
     warning(
       false,
@@ -726,9 +1587,12 @@ function safelyDecodeURI(value: string) {
   }
 }
 
+// 这两个实际就是使用try catch包裹一下 // +++
+
+// 安全解码
 function safelyDecodeURIComponent(value: string, paramName: string) {
   try {
-    return decodeURIComponent(value);
+    return decodeURIComponent(value); // +++
   } catch (error) {
     warning(
       false,
@@ -744,27 +1608,38 @@ function safelyDecodeURIComponent(value: string, paramName: string) {
 /**
  * @private
  */
-export function stripBasename(
+export function stripBasename( // 脱掉基础名字
   pathname: string,
   basename: string
 ): string | null {
+
+  // basename为/则直接返回
   if (basename === "/") return pathname;
 
+  // 两者都转为小写 - 然后前者不是以后者为开头的则直接返回null
   if (!pathname.toLowerCase().startsWith(basename.toLowerCase())) {
     return null;
   }
 
+  // 我们希望在用户的控件中保留尾随斜杠行为，因此如果用户指定一个带尾随斜杠的基名，我们应该支持它 // +++
   // We want to leave trailing slash behavior in the user's control, so if they
   // specify a basename with a trailing slash, we should support it
   let startIndex = basename.endsWith("/")
     ? basename.length - 1
     : basename.length;
+  // 后者是否以/结尾 ? 那么开始下标将保留这个/ : 那么直接跳过这个basename
+
+  // 取出下一个字符
   let nextChar = pathname.charAt(startIndex);
+
+  // 存在且不为/ - 那么说明pathname不以 basename/ 开头的
   if (nextChar && nextChar !== "/") {
+    // 路径名不以 basename/ 开头
     // pathname does not start with basename/
     return null;
   }
 
+  // 直接提取剩下的 - 若为空串则回退为/
   return pathname.slice(startIndex) || "/";
 }
 
@@ -776,9 +1651,10 @@ export function invariant<T>(
   value: T | null | undefined,
   message?: string
 ): asserts value is T;
-export function invariant(value: any, message?: string) {
+export function invariant(value: any, message?: string) { // invariant: 不变的
+  // value是false 或为 null 或 此值是一个undefined - 那么直接把message封装为一个Error类实例对象然后throw出去 // +++
   if (value === false || value === null || typeof value === "undefined") {
-    throw new Error(message);
+    throw new Error(message); // +++
   }
 }
 
@@ -993,12 +1869,16 @@ export function getToPathname(to: To): string | undefined {
  */
 export const joinPaths = (paths: string[]): string =>
   paths.join("/").replace(/\/\/+/g, "/");
+// 拼接路径 // +++
+// 以/连接形成字符串，之后全局替换//一个或多个为/
 
 /**
  * @private
  */
 export const normalizePathname = (pathname: string): string =>
   pathname.replace(/\/+$/, "").replace(/^\/*/, "/");
+// 序列化路径名 // +++
+// 替换结尾的/一个或多个为空串，之后替换开头的/0个或多个为/
 
 /**
  * @private

@@ -58,9 +58,10 @@ export interface RouteMatch<
 
 export interface DataRouteMatch extends RouteMatch<string, DataRouteObject> {}
 
+// 数据静态路由器上下文
 // Contexts for data routers
 export const DataStaticRouterContext =
-  React.createContext<StaticHandlerContext | null>(null);
+  React.createContext<StaticHandlerContext | null>(null); // 默认为null
 if (__DEV__) {
   DataStaticRouterContext.displayName = "DataStaticRouterContext";
 }
@@ -69,15 +70,17 @@ export interface DataRouterContextObject extends NavigationContextObject {
   router: Router;
 }
 
+// 数据路由器上下文
 export const DataRouterContext =
-  React.createContext<DataRouterContextObject | null>(null);
+  React.createContext<DataRouterContextObject | null>(null); // 默认为null
 if (__DEV__) {
   DataRouterContext.displayName = "DataRouter";
 }
 
+// 数据路由器状态上下文
 export const DataRouterStateContext = React.createContext<
   Router["state"] | null
->(null);
+>(null); // 默认为null
 if (__DEV__) {
   DataRouterStateContext.displayName = "DataRouterState";
 }
@@ -118,8 +121,9 @@ interface NavigationContextObject {
   static: boolean;
 }
 
+// 导航上下文
 export const NavigationContext = React.createContext<NavigationContextObject>(
-  null!
+  null! // 默认为null
 );
 
 if (__DEV__) {
@@ -131,8 +135,9 @@ interface LocationContextObject {
   navigationType: NavigationType;
 }
 
+// 位置上下文
 export const LocationContext = React.createContext<LocationContextObject>(
-  null!
+  null! // 默认为null
 );
 
 if (__DEV__) {
@@ -144,10 +149,12 @@ export interface RouteContextObject {
   matches: RouteMatch[];
 }
 
+// +++
+// 路由上下文
 export const RouteContext = React.createContext<RouteContextObject>({
-  outlet: null,
-  matches: [],
-});
+  outlet: null, // 出口属性
+  matches: [], // 匹配属性
+}); // 默认为这样一个对象 // +++
 
 if (__DEV__) {
   RouteContext.displayName = "Route";

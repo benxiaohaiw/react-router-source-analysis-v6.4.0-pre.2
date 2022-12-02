@@ -26,7 +26,8 @@ const canUseDOM: boolean = !!(
 const isServerEnvironment = !canUseDOM;
 const shim = isServerEnvironment ? server : client;
 
+// +++
 export const useSyncExternalStore =
   "useSyncExternalStore" in React
-    ? ((module) => module.useSyncExternalStore)(React)
-    : shim;
+    ? ((module) => module.useSyncExternalStore)(React) // 其实就是React中的useSyncExternalStore hook
+    : shim; // polyfill 垫片

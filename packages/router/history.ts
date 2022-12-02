@@ -329,27 +329,37 @@ export type BrowserHistoryOptions = UrlHistoryOptions;
  *
  * @see https://github.com/remix-run/history/tree/main/docs/api-reference.md#createbrowserhistory
  */
-export function createBrowserHistory(
+export function createBrowserHistory( // 创建浏览器历史
   options: BrowserHistoryOptions = {}
 ): BrowserHistory {
+
+  // 创建浏览器location
   function createBrowserLocation(
     window: Window,
     globalHistory: Window["history"]
   ) {
+    // 直接window.location获取
     let { pathname, search, hash } = window.location;
+
+    // 创建location对象
     return createLocation(
       "",
       { pathname, search, hash },
       // state defaults to `null` because `window.history.state` does
       (globalHistory.state && globalHistory.state.usr) || null,
       (globalHistory.state && globalHistory.state.key) || "default"
+      // 也是直接window.history.state上直接获取 // +++
     );
   }
 
+  // 创建浏览器href
   function createBrowserHref(window: Window, to: To) {
+    // to若是字符串则直接使用
+    // 否则则根据它创建路径 - 也就是根据to对象进行拼接【字符串】 // +++
     return typeof to === "string" ? to : createPath(to);
   }
 
+  // 获取基础的history - 其实就是返回一个【history对象】
   return getUrlBasedHistory(
     createBrowserLocation,
     createBrowserHref,
@@ -459,21 +469,25 @@ function warning(cond: any, message: string) {
   }
 }
 
+// 创建key
 function createKey() {
-  return Math.random().toString(36).substr(2, 8);
+  return Math.random().toString(36).substr(2, 8); // +++
 }
 
 /**
+ * 对于基于浏览器的历史记录，我们将状态和key组合到一个对象中
  * For browser-based histories, we combine the state and key into an object
  */
 function getHistoryState(location: Location): HistoryState {
+  // 返回一个以usr和key组合的对象 // +++
   return {
-    usr: location.state,
-    key: location.key,
+    usr: location.state, // +++
+    key: location.key, // +++
   };
 }
 
 /**
+ * 使用给定路径中的唯一key创建一个 Location 对象
  * Creates a Location object with a unique key from the given Path
  */
 export function createLocation(
@@ -482,63 +496,88 @@ export function createLocation(
   state: any = null,
   key?: string
 ): Readonly<Location> {
+  // 准备location对象
   let location: Readonly<Location> = {
-    pathname: typeof current === "string" ? current : current.pathname,
+    pathname: typeof current === "string" ? current : current.pathname, // 当前的路径名字
     search: "",
     hash: "",
-    ...(typeof to === "string" ? parsePath(to) : to),
-    state,
+    ...(typeof to === "string" ? parsePath(to) : to), // to
+    // 这里直接使用to对象对以上属性进行【覆盖】 // +++
+
+    // 【覆盖】 // ++++++
+
+    state, // 状态
     // TODO: This could be cleaned up.  push/replace should probably just take
     // full Locations now and avoid the need to run through this flow at all
     // But that's a pretty big refactor to the current test suite so going to
     // keep as is for the time being and just let any incoming keys take precedence
-    key: (to && (to as Location).key) || key || createKey(),
+    key: (to && (to as Location).key) || key || createKey(), // to.key || key || 创建一个key // +++
   };
+
+  // 返回对象
   return location;
 }
 
 /**
+ * 根据给定的路径名​​、搜索和哈希组件创建字符串 URL 路径。
  * Creates a string URL path from the given pathname, search, and hash components.
  */
 export function createPath({
-  pathname = "/",
+  pathname = "/", // 默认为/
   search = "",
   hash = "",
 }: Partial<Path>) {
+
+  // 直接使用pathname进行以下拼接 // +++
+
   if (search && search !== "?")
-    pathname += search.charAt(0) === "?" ? search : "?" + search;
+    pathname += search.charAt(0) === "?" ? search : "?" + search; // 第一个字符是否为?，若不是则补上
   if (hash && hash !== "#")
-    pathname += hash.charAt(0) === "#" ? hash : "#" + hash;
+    pathname += hash.charAt(0) === "#" ? hash : "#" + hash; // 第一个字符是否为#，若不是则补上
+  
+  // 返回最终拼接好的【字符串】 // +++
   return pathname;
 }
 
 /**
+ * 将字符串 URL 路径解析为其单独的路径名、搜索和哈希组件。
  * Parses a string URL path into its separate pathname, search, and hash components.
  */
 export function parsePath(path: string): Partial<Path> {
+
+  // 准备对象
   let parsedPath: Partial<Path> = {};
 
   if (path) {
+    // 先处理hash
     let hashIndex = path.indexOf("#");
     if (hashIndex >= 0) {
+      // 截取并添加hash属性
       parsedPath.hash = path.substr(hashIndex);
+      // 替换
       path = path.substr(0, hashIndex);
     }
 
+    // 再处理search
     let searchIndex = path.indexOf("?");
     if (searchIndex >= 0) {
+      // 截取并添加search属性
       parsedPath.search = path.substr(searchIndex);
+      // 替换
       path = path.substr(0, searchIndex);
     }
 
     if (path) {
+      // 添加pathname属性 // +++
       parsedPath.pathname = path;
     }
   }
 
+  // 返回解析对象 // +++
   return parsedPath;
 }
 
+// 根据location创建一个URL类的实例对象
 export function createURL(location: Location | string): URL {
   // window.location.origin is "null" (the literal string value) in Firefox
   // under certain conditions, notably when serving from a local HTML file
@@ -549,7 +588,12 @@ export function createURL(location: Location | string): URL {
     window.location.origin !== "null"
       ? window.location.origin
       : "unknown://unknown";
+  // 准备基础base
   let href = typeof location === "string" ? location : createPath(location);
+  // 是一个字符串则直接使用
+  // 不是则直接根据它来去创建出对应拼接好后的字符串 // +++
+
+  // 创建URL类的实例对象
   return new URL(href, base);
 }
 
@@ -560,99 +604,141 @@ export type UrlHistoryOptions = {
   v5Compat?: boolean;
 };
 
+// 获取基础的history
 function getUrlBasedHistory(
   getLocation: (window: Window, globalHistory: Window["history"]) => Location,
   createHref: (window: Window, to: To) => string,
   validateLocation: ((location: Location, to: To) => void) | null,
   options: UrlHistoryOptions = {}
 ): UrlHistory {
-  let { window = document.defaultView!, v5Compat = false } = options;
+  // 从options对象中解构 且 赋值【默认值】
+  let { window = document.defaultView! /** +++ */, v5Compat = false } = options;
+  // winodw上的history对象 // +++
   let globalHistory = window.history;
+  // 'POP'
   let action = Action.Pop;
+  // 监听器
   let listener: Listener | null = null;
 
+  // 处理popstate事件函数
   function handlePop() {
-    action = Action.Pop;
+    action = Action.Pop; // 对当前的action变量赋值为'POP'
     if (listener) {
-      listener({ action, location: history.location });
+      // 直接执行监听器函数
+      listener({ action /** action表示的行为 */, location: history.location /** 执行下面的location【访问器属性】 */ }); // +++
     }
   }
 
+  // push
   function push(to: To, state?: any) {
-    action = Action.Push;
+    action = Action.Push; // 'POP'
+    // 创建location
     let location = createLocation(history.location, to, state);
+
+    // 校验
     if (validateLocation) validateLocation(location, to);
 
+    // 获取状态
     let historyState = getHistoryState(location);
+
+    // 创建href
     let url = history.createHref(location);
 
+    // try...catch 因为 iOS 将我们限制为 100 次 pushState 调用
     // try...catch because iOS limits us to 100 pushState calls :/
     try {
-      globalHistory.pushState(historyState, "", url);
+      globalHistory.pushState(historyState, "", url); // 直接window.history.pushState函数的执行
     } catch (error) {
       // They are going to lose state here, but there is no real
       // way to warn them about it since the page will refresh...
       window.location.assign(url);
     }
 
+    // false && true
     if (v5Compat && listener) {
       listener({ action, location: history.location });
     }
   }
 
+  // replace
   function replace(to: To, state?: any) {
-    action = Action.Replace;
+    action = Action.Replace; // 'REPLACE'
+    // 创建location
     let location = createLocation(history.location, to, state);
+
+    // 校验
     if (validateLocation) validateLocation(location, to);
 
+    // 获取state
     let historyState = getHistoryState(location);
+
+    // 创建href
     let url = history.createHref(location);
+
+    // 还是直接window.history.replaceState函数的执行 // +++
     globalHistory.replaceState(historyState, "", url);
 
+    // false && true
     if (v5Compat && listener) {
       listener({ action, location: history.location });
     }
   }
 
+  // 准备history对象 // +++
   let history: History = {
+    // 定义访问器属性
     get action() {
       return action;
     },
     get location() {
-      return getLocation(window, globalHistory);
+      return getLocation(window, globalHistory); // 获取location // +++
     },
+    // 监听 - 且只能监听一次 // +++
     listen(fn: Listener) {
       if (listener) {
         throw new Error("A history only accepts one active listener");
       }
+      // 监听popstate事件 // 处理函数为handlePop
       window.addEventListener(PopStateEventType, handlePop);
+
+      // 监听者赋值为这个fn回调函数 // +++
       listener = fn;
 
       return () => {
+        // 删除监听
         window.removeEventListener(PopStateEventType, handlePop);
+        // 置为null
         listener = null;
       };
     },
+    // 创建href
     createHref(to) {
       return createHref(window, to);
     },
+    // 编码location
     encodeLocation(location) {
+      // 以与 window.location 相同的方式对 Location 进行编码
       // Encode a Location the same way window.location would
-      let url = createURL(createPath(location));
+      let url = createURL(createPath(location)); // 对location创建路径也就是拼接字符串，之后根据它创建URL类的实例对象 // +++
       return {
         ...location,
+
+        // 覆盖以上的属性 // +++
         pathname: url.pathname,
         search: url.search,
         hash: url.hash,
       };
     },
-    push,
-    replace,
+    push, // push函数
+    replace, // replace函数
+    // go函数 // +++
     go(n) {
+      // 直接就是window.history.go函数的执行 // +++
       return globalHistory.go(n);
     },
   };
 
+  // 返回history对象
   return history;
 }
 

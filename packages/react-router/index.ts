@@ -50,7 +50,7 @@ import type {
   RouterProviderProps,
 } from "./lib/components";
 import {
-  enhanceManualRouteObjects,
+  enhanceManualRouteObjects, // +++
   createRoutesFromChildren,
   renderMatches,
   Await,
@@ -240,5 +240,5 @@ export {
   DataRouterContext as UNSAFE_DataRouterContext,
   DataRouterStateContext as UNSAFE_DataRouterStateContext,
   DataStaticRouterContext as UNSAFE_DataStaticRouterContext,
-  enhanceManualRouteObjects as UNSAFE_enhanceManualRouteObjects,
+  enhanceManualRouteObjects as UNSAFE_enhanceManualRouteObjects, // +++
 };

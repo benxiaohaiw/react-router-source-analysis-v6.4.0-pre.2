@@ -187,13 +187,66 @@ export {
 //#endregion
 
 declare global {
-  var __staticRouterHydrationData: HydrationState | undefined;
+  var __staticRouterHydrationData: HydrationState | undefined; // 下面在使用的地方是window?.__staticRouterHydrationData - 那么所以以后再使用ts的话对于window上的属性可以
+  // 参考这里的这个 // +++
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 //#region Routers
 ////////////////////////////////////////////////////////////////////////////////
 
+/* 
+const router = createBrowserRouter([
+  {
+    path: '/',
+    element: <Root />,
+    errorElement: <ErrorPage />,
+    children: [
+      {
+        path: 'contacts/:contactId',
+        element: <Contact />,
+      },
+      {
+        path: 'contacts/:contactId/edit',
+        element: <EditContact />,
+      },
+    ],
+  },
+  {
+    path: '/login',
+    element: <Login />,
+  },
+])
+*/
+/* 
+const router = createBrowserRouter([
+  {
+    path: '/',
+    element: <Root />,
+    children: [
+      {
+        path: 'a',
+        element: <A />,
+        children: [
+          {
+            path: 'b/:xxx',
+            element: <B />,
+          }
+        ]
+      },
+      {
+        path: 'c',
+        element: <C />,
+      },
+    ],
+  },
+  {
+    path: '/d',
+    element: <D />,
+  },
+])
+*/
+// 创建浏览器路由器 // +++
 export function createBrowserRouter(
   routes: RouteObject[],
   opts?: {
@@ -202,12 +255,18 @@ export function createBrowserRouter(
     window?: Window;
   }
 ): RemixRouter {
+  // 创建路由器 // +++
+  // benxiaohaiw/react-router-source-analysis-v6.4.0-pre.2/packages/router/router.ts下的createRouter函数 // +++
   return createRouter({
-    basename: opts?.basename,
-    history: createBrowserHistory({ window: opts?.window }),
-    hydrationData: opts?.hydrationData || window?.__staticRouterHydrationData,
-    routes: enhanceManualRouteObjects(routes),
-  }).initialize();
+    basename: opts?.basename, // 基础名字
+    // benxiaohaiw/react-router-source-analysis-v6.4.0-pre.2/packages/router/history.ts下的createBrowserHistory函数
+    history: createBrowserHistory({ window: opts?.window }), // 创建浏览器history对象
+    hydrationData: opts?.hydrationData || window?.__staticRouterHydrationData, // 混合数据
+    // benxiaohaiw/react-router-source-analysis-v6.4.0-pre.2/packages/react-router/lib/components.tsx下的enhanceManualRouteObjects函数
+    routes: enhanceManualRouteObjects(routes), // 路由 - 增强手动路由对象 - 仅仅只是对每个路由route进行浅拷贝 且 处理它们的hasErrorBoundary属性是true还是false，这个值根据route的errorElement是否!=null
+  }).initialize(); // 初始化
+  // 紧接着执行initialize函数 // +++
+  /// 主要就是监听popstate事件 - 其它逻辑具体看initialize函数 // +++
 }
 
 export function createHashRouter(

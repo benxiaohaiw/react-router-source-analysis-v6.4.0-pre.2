@@ -94,7 +94,7 @@ export function useInRouterContext(): boolean {
  *
  * @see https://reactrouter.com/docs/en/v6/hooks/use-location
  */
-export function useLocation(): Location {
+export function useLocation(): Location { // useLocation hook
   invariant(
     useInRouterContext(),
     // TODO: This error is probably because they somehow have 2 versions of the
@@ -102,7 +102,8 @@ export function useLocation(): Location {
     `useLocation() may be used only in the context of a <Router> component.`
   );
 
-  return React.useContext(LocationContext).location;
+  // 使用位置上下文 - 然后取出location属性 // +++
+  return React.useContext(LocationContext).location; // 它是在Router函数式组件中提供的值对象中的location属性的 // +++
 }
 
 /**
@@ -220,7 +221,8 @@ export function useNavigate(): NavigateFunction {
   return navigate;
 }
 
-const OutletContext = React.createContext<unknown>(null);
+// 出口上下文
+const OutletContext = React.createContext<unknown>(null); // 默认为null
 
 /**
  * Returns the context (if provided) for the child route at this level of the route
@@ -237,11 +239,14 @@ export function useOutletContext<Context = unknown>(): Context {
  *
  * @see https://reactrouter.com/docs/en/v6/hooks/use-outlet
  */
-export function useOutlet(context?: unknown): React.ReactElement | null {
-  let outlet = React.useContext(RouteContext).outlet;
+export function useOutlet(context?: unknown): React.ReactElement | null { // useOutlet hook
+  let outlet = React.useContext(RouteContext).outlet; // 直接使用路由上下文，然后取出outlet属性值
+  
+  // +++
   if (outlet) {
     return (
-      <OutletContext.Provider value={context}>{outlet}</OutletContext.Provider>
+      // 出口上下文提供这个context值 // 但是它是undefined
+      <OutletContext.Provider value={context}>{outlet}</OutletContext.Provider> // 直接渲染outlet元素 - 也就是匹配到的后一个match对象对应的route对象的element元素 // +++
     );
   }
   return outlet;
@@ -302,7 +307,7 @@ export function useResolvedPath(
 export function useRoutes(
   routes: RouteObject[],
   locationArg?: Partial<Location> | string
-): React.ReactElement | null {
+): React.ReactElement | null { // useRoutes hook
   invariant(
     useInRouterContext(),
     // TODO: This error is probably because they somehow have 2 versions of the
@@ -310,13 +315,20 @@ export function useRoutes(
     `useRoutes() may be used only in the context of a <Router> component.`
   );
 
-  let dataRouterStateContext = React.useContext(DataRouterStateContext);
-  let { matches: parentMatches } = React.useContext(RouteContext);
-  let routeMatch = parentMatches[parentMatches.length - 1];
-  let parentParams = routeMatch ? routeMatch.params : {};
-  let parentPathname = routeMatch ? routeMatch.pathname : "/";
-  let parentPathnameBase = routeMatch ? routeMatch.pathnameBase : "/";
-  let parentRoute = routeMatch && routeMatch.route;
+  let dataRouterStateContext = React.useContext(DataRouterStateContext); // 使用数据路由器状态上下文
+  let { matches: parentMatches /** 默认值为一个空数组 [] */ } = React.useContext(RouteContext); // 使用路由上下文
+
+  // 路由匹配
+  // +++
+  let routeMatch = parentMatches[parentMatches.length - 1]; // undefined
+
+  // +++
+  let parentParams = routeMatch ? routeMatch.params : {}; // {}
+  let parentPathname = routeMatch ? routeMatch.pathname : "/"; // /
+  let parentPathnameBase = routeMatch ? routeMatch.pathnameBase : "/"; // /
+
+  // +++
+  let parentRoute = routeMatch && routeMatch.route; // undefined
 
   if (__DEV__) {
     // You won't get a warning about 2 different <Routes> under a <Route>
@@ -353,10 +365,13 @@ export function useRoutes(
     );
   }
 
-  let locationFromContext = useLocation();
+  // useLocation hook
+  let locationFromContext = useLocation(); // 其实就是使用LocationContext，然后取location属性
+  // +++
+  // 就是在Router函数式组件中计算出来的location对象 // +++
 
   let location;
-  if (locationArg) {
+  if (locationArg /** undefined */) {
     let parsedLocationArg =
       typeof locationArg === "string" ? parsePath(locationArg) : locationArg;
 
@@ -371,16 +386,21 @@ export function useRoutes(
 
     location = parsedLocationArg;
   } else {
-    location = locationFromContext;
+    location = locationFromContext; // 赋值为上面的那个location对象 // +++
   }
 
-  let pathname = location.pathname || "/";
-  let remainingPathname =
-    parentPathnameBase === "/"
-      ? pathname
-      : pathname.slice(parentPathnameBase.length) || "/";
+  let pathname = location.pathname || "/"; // 当前的路径名
 
-  let matches = matchRoutes(routes, { pathname: remainingPathname });
+  // 剩余路径名
+  let remainingPathname =
+    parentPathnameBase === "/" // 是/
+      ? pathname // 那么直接路径名
+      : pathname.slice(parentPathnameBase.length) /** 跳过基础 */ || "/"; // +++
+
+  // +++
+  // 再一次执行【匹配路由】函数 // +++
+  // 得到匹配结果数组 - 是经过扁平化后的 // +++
+  let matches = matchRoutes(routes /** 路由器对象中的数据路由dataRoutes */, { pathname: remainingPathname /** 当前的路径名 */ } /** 传递的location对象 */);
 
   if (__DEV__) {
     warning(
@@ -396,20 +416,24 @@ export function useRoutes(
     );
   }
 
+  // 渲染匹配 // +++
   let renderedMatches = _renderMatches(
     matches &&
+      // 映射一遍 - 目的就是和这里的parentXxx进行合并或者是拼接的 // +++
       matches.map((match) =>
+        // 合并每一个匹配元素 // +++
+        // 其实就是和这里的parentXxx进行合并或者是拼接的 // +++
         Object.assign({}, match, {
-          params: Object.assign({}, parentParams, match.params),
-          pathname: joinPaths([parentPathnameBase, match.pathname]),
+          params: Object.assign({}, parentParams, match.params), // 与父合并
+          pathname: joinPaths([parentPathnameBase, match.pathname]), // 与父拼接
           pathnameBase:
             match.pathnameBase === "/"
-              ? parentPathnameBase
-              : joinPaths([parentPathnameBase, match.pathnameBase]),
+              ? parentPathnameBase // 父
+              : joinPaths([parentPathnameBase, match.pathnameBase]), // 与父拼接
         })
       ),
-    parentMatches,
-    dataRouterStateContext || undefined
+    parentMatches, // 默认值空数组
+    dataRouterStateContext /** 数据路由器状态上下文 */ || undefined
   );
 
   // When a user passes in a `locationArg`, the associated routes need to
@@ -435,8 +459,149 @@ export function useRoutes(
     );
   }
 
+  // +++
+  // 返回渲染匹配结果 // +++ 也就是组合后的元素交给react进行渲染 // +++
   return renderedMatches;
 }
+// https://reactrouter.com/en/main/start/tutorial
+/* 
+/contacts/张佳宁
+
+matches: [
+  {
+    params: {
+      contactId: '张佳宁'
+    },
+    pathname: '/',
+    pathnameBase: '/',
+    route源对象
+  },
+  {
+    params: {
+      contactId: '张佳宁'
+    },
+    pathname: '/contacts/张佳宁',
+    pathnameBase: '/contacts/张佳宁',
+    route源对象
+  }
+]
+倒序进行 - 后一个则需要作为前一个的outlet（出口）
+
+renderedMatches:
+<RenderErrorBoundary
+  location={dataRouterState.location}
+  component={errorElement}
+  error={error}
+  children={getChildren()}
+/>
+
+|
+\/
+
+<RenderErrorBoundary
+  location={dataRouterState.location}
+  component={errorElement}
+  error={error}
+  children={
+    <RenderedRoute
+      match={match Root}
+      routeContext={{
+        outlet: (<RenderedRoute
+          match={match Contact}
+          routeContext={{
+            outlet: null,
+            matches: [match Root, match Contact],
+          }}
+        >
+          {match Contact.route.element}
+        </RenderedRoute>),
+        matches: [match Root],
+      }}
+    >
+      {match Root.route.element}
+    </RenderedRoute>
+  }
+/>
+
+|
+\/
+
+children={
+  <RouteContext.Provider
+    value={{
+      outlet: (
+        <RouteContext.Provider
+          value={{
+            outlet: null,
+            matches: [match Root, match Contact],
+          }}
+        >
+          {match Contact.route.element} // <Contact /> // +++
+        </<RouteContext.Provider>
+      ),
+      matches: [match Root],
+    }}
+  >
+    {match Root.route.element} // <Root /> -> 直接使用<Outlet />组件 - 那么具体查看Outlet函数式组件内部其实使用了useOutlet hook再然后就是使用了RouteContext，取出outlet属性值作为孩子children进行渲染 // +++
+    // +++
+  </RouteContext.Provider>
+}
+// 这个就是_renderMatches函数内使用数组的reduceRight函数所形成的最终结构就是这样的啦 ~
+
+// ===
+
+<RouterProvider router={router} />
+
+|
+\/
+
+<DataRouterContext.Provider
+  value={{
+    ...
+  }}
+>
+  <DataRouterStateContext.Provider
+    value={{
+      ...
+    }}
+  >
+    <Router // 下面说的是这里
+      ...
+    >
+      <Routes />
+    </Router>
+  </DataRouterStateContext.Provider>
+</<DataRouterContext.Provider>
+
+|
+\/
+
+<NavigationContext.Provider // 这个是Router函数式组件内部 // +++
+  value={{
+    ...
+  }}
+>
+  <LocationContext.Provider
+    value={{
+      ...
+    }}
+    children={
+      <Routes /> // 下面说的是这个
+    }
+  >
+  </LocationContext.Provider>
+</NavigationContext.Provider>
+
+|
+\/
+
+useRoutes hook
+
+|
+\/
+
+那么就是最上方的renderedMatches值，也就是RenderErrorBoundary类组件啦:) ~
+*/
 
 function DefaultErrorElement() {
   let error = useRouteError();
@@ -547,8 +712,10 @@ interface RenderedRouteProps {
   children: React.ReactNode | null;
 }
 
+// 渲染路由函数式组件
 function RenderedRoute({ routeContext, match, children }: RenderedRouteProps) {
-  let dataStaticRouterContext = React.useContext(DataStaticRouterContext);
+  let dataStaticRouterContext = React.useContext(DataStaticRouterContext); // 使用数据静态路由器上下文 // +++
+  // 默认值是一个null值的 // +++
 
   // Track how deep we got in our render pass to emulate SSR componentDidCatch
   // in a DataStaticRouter
@@ -556,13 +723,14 @@ function RenderedRoute({ routeContext, match, children }: RenderedRouteProps) {
     dataStaticRouterContext._deepestRenderedBoundaryId = match.route.id;
   }
 
-  return (
-    <RouteContext.Provider value={routeContext}>
-      {children}
+  return ( // 这里使用路由上下文提供者提供这个路由上下文对象 // +++
+    <RouteContext.Provider value={routeContext}> {/** 路由上下文提供值对象 // +++ */}
+      {children /** 直接渲染孩子children */}
     </RouteContext.Provider>
   );
 }
 
+// 渲染匹配
 export function _renderMatches(
   matches: RouteMatch[] | null,
   parentMatches: RouteMatch[] = [],
@@ -596,41 +764,48 @@ export function _renderMatches(
     );
   }
 
+  // reduceRight
+  // 对于数组中的元素【倒序遍历】 - 【后一个元素则作为前一个元素的outlet】 // +++ 重点 // +++
   return renderedMatches.reduceRight((outlet, match, index) => {
     let error = match.route.id ? errors?.[match.route.id] : null;
     // Only data routers handle errors
     let errorElement = dataRouterState
-      ? match.route.errorElement || <DefaultErrorElement />
+      ? match.route.errorElement || <DefaultErrorElement /> // 默认错误元素
       : null;
+    // 获取孩子函数 // +++
     let getChildren = () => (
+      // 渲染路由函数式组件
       <RenderedRoute
-        match={match}
+        match={match} // match对象
+        // 提供的【路由上下文对象】 // +++
         routeContext={{
-          outlet,
+          outlet, // outlet值 - 后一个元素作为这里的元素的outlet // ++++++ 格外注意这个！！！
+          // 父匹配拼接（目前为空数组）【包含自身match对象的前部分数组】使用的是concat会形成新的数组引用（这里要注意！！！） // +++
           matches: parentMatches.concat(renderedMatches.slice(0, index + 1)),
         }}
       >
         {error
-          ? errorElement
+          ? errorElement // 有错误就显示错误元素
           : match.route.element !== undefined
-          ? match.route.element
+          ? match.route.element // 需要渲染的元素直接作为孩子 // ++++++ 格外注意这个！！！
           : outlet}
       </RenderedRoute>
     );
     // Only wrap in an error boundary within data router usages when we have an
     // errorElement on this route.  Otherwise let it bubble up to an ancestor
     // errorElement
-    return dataRouterState && (match.route.errorElement || index === 0) ? (
+    return dataRouterState /** 数据路由器状态上下文 */ && (match.route.errorElement || index === 0) /** 路由有错误元素 或 当前遍历下标index为0也就是遍历到了第一个元素了 */ ? (
+      // 使用渲染错误边界【类式组件】进行包裹 // +++
       <RenderErrorBoundary
-        location={dataRouterState.location}
-        component={errorElement}
-        error={error}
-        children={getChildren()}
+        location={dataRouterState.location} // 数据路由器状态上下文对象中的location属性值
+        component={errorElement} // 错误元素 // +++
+        error={error} // 
+        children={getChildren()} // 孩子 // +++
       />
     ) : (
-      getChildren()
+      getChildren() // 直接执行获取孩子函数
     );
-  }, null as React.ReactElement | null);
+  }, null as React.ReactElement | null); // 初始outlet为null // +++
 }
 
 enum DataRouterHook {

@@ -503,8 +503,9 @@ interface QueryRouteResponse {
   response: Response;
 }
 
+// 空闲导航 // +++
 export const IDLE_NAVIGATION: NavigationStates["Idle"] = {
-  state: "idle",
+  state: "idle", // +++
   location: undefined,
   formMethod: undefined,
   formAction: undefined,
@@ -533,6 +534,7 @@ const isServer = !isBrowser;
 ////////////////////////////////////////////////////////////////////////////////
 
 /**
+ * 创建路由器并监听history POP 导航（其实就是监听popstate事件） // +++
  * Create a router and listen to history POP navigations
  */
 export function createRouter(init: RouterInit): Router {
@@ -540,61 +542,214 @@ export function createRouter(init: RouterInit): Router {
     init.routes.length > 0,
     "You must provide a non-empty routes array to createRouter"
   );
+  /* 
+  benxiaohaiw/react-router-source-analysis-v6.4.0-pre.2/packages/react-router-dom/index.tsx下的createBrowserRouter -> enhanceManualRouteObjects处理的
+  init.routes
+  [
+    {
+      path: '/',
+      element: <Root />,
+      errorElement: <ErrorPage />,
+      hasErrorBoundary: true,
+      children: [
+        {
+          path: 'contacts/:contactId',
+          element: <Contact />,
+          hasErrorBoundary: false
+        },
+      ],
+    },
+  ]
+  */
 
-  let dataRoutes = convertRoutesToDataRoutes(init.routes);
+  // 转换路由为【数据路由】 // +++
+  let dataRoutes = convertRoutesToDataRoutes(init.routes); // 也没有做什么 - 主要是进行
+  /* 
+  对每一个路由route进行浅拷贝 - 增加id属性 - 然后对路由的children再次进行递归性的convertRoutesToDataRoutes函数的执行
+
+  id的规则是路由若有id属性则直接使用
+  若没有则根据此route所在数组中的下标index（不是route的index属性啦）产生id
+  比如
+    0
+      0-0
+      0-1
+    1
+      1-0
+  诸如此类
+  */
+
+  /* 
+  dataRoutes
+  [
+    {
+      path: '/',
+      element: <Root />,
+      errorElement: <ErrorPage />,
+      hasErrorBoundary: true,
+      id: '0',
+      children: [
+        {
+          path: 'contacts/:contactId',
+          element: <Contact />,
+          hasErrorBoundary: false,
+          id: '0-0'
+        },
+      ],
+    },
+  ]
+  */
+
+  /* 
+  dataRoutes
+  [
+    {
+      path: '/',
+      element: <Root />,
+      hasErrorBoundary: false,
+      id: '0',
+      children: [
+        {
+          path: 'a',
+          element: <A />,
+          hasErrorBoundary: false,
+          id: '0-0',
+          children: [
+            {
+              path: 'b/:xxx',
+              element: <B />,
+              hasErrorBoundary: false,
+              id: '0-0-0',
+            }
+          ]
+        },
+        {
+          path: 'c',
+          element: <C />,
+          hasErrorBoundary: false,
+          id: '0-1',
+        },
+      ],
+    },
+    {
+      path: '/d',
+      element: <D />,
+      hasErrorBoundary: false,
+      id: '1',
+    },
+  ]
+  */
+
+  // 为history的清理函数
   // Cleanup function for history
-  let unlistenHistory: (() => void) | null = null;
+  let unlistenHistory: (() => void) | null = null; // 取消监听history // +++
   // Externally-provided functions to call on all state changes
-  let subscribers = new Set<RouterSubscriber>();
+  let subscribers = new Set<RouterSubscriber>(); // 订阅者集合 - 一个set // +++
   // Externally-provided object to hold scroll restoration locations during routing
-  let savedScrollPositions: Record<string, number> | null = null;
+  let savedScrollPositions: Record<string, number> | null = null; // 保存滚动位置
   // Externally-provided function to get scroll restoration keys
-  let getScrollRestorationKey: GetScrollRestorationKeyFunction | null = null;
+  let getScrollRestorationKey: GetScrollRestorationKeyFunction | null = null; // 获取滚动恢复key
   // Externally-provided function to get current scroll position
-  let getScrollPosition: GetScrollPositionFunction | null = null;
+  let getScrollPosition: GetScrollPositionFunction | null = null; // 获取滚动位置
   // One-time flag to control the initial hydration scroll restoration.  Because
   // we don't get the saved positions from <ScrollRestoration /> until _after_
   // the initial render, we need to manually trigger a separate updateState to
   // send along the restoreScrollPosition
-  let initialScrollRestored = false;
+  let initialScrollRestored = false; // 初始滚动已恢复 - 默认为false // +++
 
+  // 开始进行匹配路由
+  // benxiaohaiw/react-router-source-analysis-v6.4.0-pre.2/packages/router/utils.ts下的matchRoutes函数 // +++
   let initialMatches = matchRoutes(
     dataRoutes,
-    init.history.location,
-    init.basename
+    init.history.location, // 注意是【访问器属性】
+    init.basename // undefiend - 那么该函数执行的时候basename的默认值就是'/'
   );
+  // +++
+  /* 
+  /a/b/223
+  matches
+  {
+    params: {
+      xxx: 223
+    },
+    pathname: '/',
+    pathnameBase: '/',
+    route原对象
+  }
+  {
+    params: {
+      xxx: 223
+    },
+    pathname: '/a/',
+    pathnameBase: '/a',
+    route原对象
+  }
+  {
+    params: {
+      xxx: 223
+    },
+    pathname: '/a/b/223',
+    pathnameBase: '/a/b/223',
+    route原对象
+  }
+  */
+
   let initialErrors: RouteData | null = null;
 
+  // 没有匹配到的
   if (initialMatches == null) {
+    // 如果我们没有匹配用户提供的路由，退回到根节点，允许错误边界接管 // +++
     // If we do not match a user-provided-route, fall back to the root
     // to allow the error boundary to take over
-    let { matches, route, error } = getNotFoundMatches(dataRoutes);
-    initialMatches = matches;
-    initialErrors = { [route.id]: error };
+    let { matches, route, error } = getNotFoundMatches(dataRoutes); // +++ 在数据路由中获取【找不到】匹配 // +++
+    // 实际上就是创建一个对应的 - 具体细节看此函数 // +++
+
+    initialMatches = matches; // 赋值匹配最初始匹配 // +++
+    initialErrors = { [route.id]: error }; // 最初始错误 // +++
   }
 
+  // ++++++
+  // 最初始匹配中是否有loader属性然后取反 或者 init参数对象中的hydrationData属性 != null 得到是否已初始化 // +++
+  // +++
   let initialized =
-    !initialMatches.some((m) => m.route.loader) || init.hydrationData != null;
+    !initialMatches.some((m) => m.route.loader) || init.hydrationData != null; // +++
+  // +++
 
+  // 准备【路由器对象】 // +++
   let router: Router;
+
+
+
+  // 准备【路由器状态对象】 // +++
   let state: RouterState = {
-    historyAction: init.history.action,
-    location: init.history.location,
-    matches: initialMatches,
-    initialized,
-    navigation: IDLE_NAVIGATION,
+    // packages/router/history.ts下的getUrlBasedHistory函数所返回的history对象的【访问器属性】
+    historyAction: init.history.action, // 'POP'
+    location: init.history.location, // 实际上是根据window.location创建一个location对象 - {pathname, search, hash, ...}
+    matches: initialMatches, // 初始化匹配
+    initialized, // ++++++ true or false
+    navigation: IDLE_NAVIGATION, // +++
+    /* 
+    // 空闲导航
+    export const IDLE_NAVIGATION: NavigationStates["Idle"] = {
+      state: "idle",
+      location: undefined,
+      formMethod: undefined,
+      formAction: undefined,
+      formEncType: undefined,
+      formData: undefined,
+    };
+    */
     restoreScrollPosition: null,
     preventScrollReset: false,
-    revalidation: "idle",
+    revalidation: "idle", // 重新生效 - 空闲
     loaderData: (init.hydrationData && init.hydrationData.loaderData) || {},
     actionData: (init.hydrationData && init.hydrationData.actionData) || null,
     errors: (init.hydrationData && init.hydrationData.errors) || initialErrors,
-    fetchers: new Map(),
+    fetchers: new Map(), // 请求者 - 一个map
   };
 
   // -- Stateful internal variables to manage navigations --
   // Current navigation in progress (to be committed in completeNavigation)
-  let pendingAction: HistoryAction = HistoryAction.Pop;
+  let pendingAction: HistoryAction = HistoryAction.Pop; // 'POP'
   // Should the current navigation prevent the scroll reset if scroll cannot
   // be restored?
   let pendingPreventScrollReset = false;
@@ -634,32 +789,43 @@ export function createRouter(init: RouterInit): Router {
   // cancel active deferreds for eliminated routes.
   let activeDeferreds = new Map<string, DeferredData>();
 
+  // 初始化路由器，所有的副作用都应该从这里开始。
   // Initialize the router, all side effects should be kicked off from here.
   // Implemented as a Fluent API for ease of:
   //   let router = createRouter(init).initialize();
-  function initialize() {
+  function initialize() { // 初始化函数 // +++
+    // 如果history告诉我们有一个POP导航，启动导航但不更新状态。我们将在导航完成后更新自己的状态 // +++
     // If history informs us of a POP navigation, start the navigation but do not update
     // state.  We'll update our own state once the navigation completes
-    unlistenHistory = init.history.listen(
-      ({ action: historyAction, location }) =>
-        startNavigation(historyAction, location)
+    unlistenHistory = init.history.listen( // 执行listen函数 // +++ packages/router/history.ts下的getUrlBasedHistory函数所返回的history对象的listen函数的执行 // +++
+      ({ action: historyAction, location }) => // listener函数 // +++
+        startNavigation(historyAction /** 'POP' */, location /** 当前最新的location对象 */) // 直接执行【开始导航】函数 // +++
     );
+    /// 主要就是监听popstate事件
 
+    // 如果需要，开始初始数据加载。使用 Pop 避免修改history
     // Kick off initial data load if needed.  Use Pop to avoid modifying history
-    if (!state.initialized) {
-      startNavigation(HistoryAction.Pop, state.location);
+    if (!state.initialized) { // 若没有初始化
+      // 这里直接先进行【开始导航】 // +++
+      startNavigation(HistoryAction.Pop /** POP */, state.location);
     }
 
+    // 返回【路由器】对象 // +++
     return router;
   }
 
+  // 清理路由器及其副作用
   // Clean up a router and it's side effects
   function dispose() {
+    // 先执行取消监听history函数 // +++
     if (unlistenHistory) {
       unlistenHistory();
     }
+    // 然后把订阅者进行clear
     subscribers.clear();
+    // 待处理的导航控制器进行abort中止
     pendingNavigationController && pendingNavigationController.abort();
+    // 请求者一一删除
     state.fetchers.forEach((_, key) => deleteFetcher(key));
   }
 
@@ -1790,19 +1956,26 @@ export function createRouter(init: RouterInit): Router {
     return null;
   }
 
+  // 准备【路由器】对象
   router = {
+    // 准备【访问器】属性
     get basename() {
       return init.basename;
     },
+    // 获取状态对象 - 【访问器】属性 // +++
     get state() {
-      return state;
+      return state; // 返回当前作用域中state变量指向的值 // +++ 因为当前是【访问器】属性 所以每次获取都会获取当前作用域下的最新的state变量指向的值啦 ~
     },
+    // 数据路由
     get routes() {
       return dataRoutes;
     },
+    // 初始化函数 // +++
     initialize,
+    // 订阅函数 // +++
     subscribe,
     enableScrollRestoration,
+    // 导航函数 // +++
     navigate,
     fetch,
     revalidate,
@@ -1816,6 +1989,7 @@ export function createRouter(init: RouterInit): Router {
     _internalActiveDeferreds: activeDeferreds,
   };
 
+  // 返回这个【路由器】对象 // +++
   return router;
 }
 //#endregion
@@ -2851,6 +3025,7 @@ function findNearestBoundary(
   );
 }
 
+// 获取短路匹配 // +++
 function getShortCircuitMatches(
   routes: AgnosticDataRouteObject[],
   status: number,
@@ -2860,27 +3035,37 @@ function getShortCircuitMatches(
   route: AgnosticDataRouteObject;
   error: ErrorResponse;
 } {
+  // 如果存在，则首选根布局路由，否则在路由对象中填充
   // Prefer a root layout route if present, otherwise shim in a route object
-  let route = routes.find((r) => r.index || !r.path || r.path === "/") || {
+  let route = routes.find((r) => r.index || !r.path || r.path === "/" /** 路由有index属性 或 没有path属性 或 path属性值为/的 */) /** 当前只找数据路由的【第一层】 */ || {
     id: `__shim-${status}-route__`,
-  };
+  }; // 没有否则直接准备一个对象 // +++
 
+  // 返回一个对象 // +++
   return {
+    // 匹配数组
     matches: [
+      // 一个匹配对象
       {
+        // 默认初始值 // +++
         params: {},
         pathname: "",
         pathnameBase: "",
+        // 路由对象
         route,
       },
     ],
+    // 上面处理后的路由对象 // +++
     route,
-    error: new ErrorResponse(status, statusText, null),
+    // 错误对象
+    error: new ErrorResponse(status, statusText, null), // 创建一个【错误响应】实例对象 // +++
   };
 }
 
+// 获取【找不到】匹配
 function getNotFoundMatches(routes: AgnosticDataRouteObject[]) {
-  return getShortCircuitMatches(routes, 404, "Not Found");
+  // 获取短路匹配
+  return getShortCircuitMatches(routes /** 数据路由 */, 404 /** 状态码 */, "Not Found" /** 状态码对应的文本 */); // 404 -> Not Found
 }
 
 function getMethodNotAllowedMatches(routes: AgnosticDataRouteObject[]) {

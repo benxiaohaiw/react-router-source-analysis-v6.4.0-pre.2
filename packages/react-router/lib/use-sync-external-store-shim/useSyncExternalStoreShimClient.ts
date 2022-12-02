@@ -45,7 +45,7 @@ export function useSyncExternalStore<T>(
   // will need to track that themselves and return the correct value
   // from `getSnapshot`.
   getServerSnapshot?: () => T
-): T {
+): T { // 这里做了一个hack polyfill 垫片 /// +++
   if (__DEV__) {
     if (!didWarnOld18Alpha) {
       if ("startTransition" in React) {
@@ -91,7 +91,7 @@ export function useSyncExternalStore<T>(
   //
   // To force a re-render, we call forceUpdate({inst}). That works because the
   // new object always fails an equality check.
-  const [{ inst }, forceUpdate] = useState({ inst: { value, getSnapshot } });
+  const [{ inst }, forceUpdate /** dispatchSetState函数 */] = useState({ inst: { value, getSnapshot } });
 
   // Track the latest getSnapshot function with a ref. This needs to be updated
   // in the layout phase so we can access it during the tearing check that
@@ -111,6 +111,7 @@ export function useSyncExternalStore<T>(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subscribe, value, getSnapshot]);
 
+  // useEffect
   useEffect(() => {
     // Check for changes right before subscribing. Subsequent changes will be
     // detected in the subscription handler.
@@ -118,6 +119,8 @@ export function useSyncExternalStore<T>(
       // Force a re-render.
       forceUpdate({ inst });
     }
+
+    // 处理store变化函数
     const handleStoreChange = () => {
       // TODO: Because there is no cross-renderer API for batching updates, it's
       // up to the consumer of this library to wrap their subscription event
@@ -126,13 +129,14 @@ export function useSyncExternalStore<T>(
 
       // The store changed. Check if the snapshot changed since the last time we
       // read from the store.
-      if (checkIfSnapshotChanged(inst)) {
+      if (checkIfSnapshotChanged(inst)) { // 检查快照是否变化 // +++
+        // 强制一个重新渲染 // +++
         // Force a re-render.
-        forceUpdate({ inst });
+        forceUpdate({ inst }); // +++ 这里也就是dispatchSetState函数 // +++
       }
     };
     // Subscribe to the store and return a clean-up function.
-    return subscribe(handleStoreChange);
+    return subscribe(handleStoreChange); // 执行subscribe函数 - 传入handleStoreChange参数函数
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subscribe]);
 
