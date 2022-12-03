@@ -643,7 +643,7 @@ export function createRouter(init: RouterInit): Router {
   // Cleanup function for history
   let unlistenHistory: (() => void) | null = null; // 取消监听history // +++
   // Externally-provided functions to call on all state changes
-  let subscribers = new Set<RouterSubscriber>(); // 订阅者集合 - 一个set // +++
+  let subscribers = new Set<RouterSubscriber>(); // 订阅者集合 - 一个Set // +++
   // Externally-provided object to hold scroll restoration locations during routing
   let savedScrollPositions: Record<string, number> | null = null; // 保存滚动位置
   // Externally-provided function to get scroll restoration keys
@@ -798,7 +798,8 @@ export function createRouter(init: RouterInit): Router {
     // If history informs us of a POP navigation, start the navigation but do not update
     // state.  We'll update our own state once the navigation completes
     unlistenHistory = init.history.listen( // 执行listen函数 // +++ packages/router/history.ts下的getUrlBasedHistory函数所返回的history对象的listen函数的执行 // +++
-      ({ action: historyAction, location }) => // listener函数 // +++
+      ({ action: historyAction, location }) => // listener函数 // +++ 这个就是popstate事件的响应函数
+      // 直接执行【开始导航】函数 // +++
         startNavigation(historyAction /** 'POP' */, location /** 当前最新的location对象 */) // 直接执行【开始导航】函数 // +++
     );
     /// 主要就是监听popstate事件
@@ -829,19 +830,44 @@ export function createRouter(init: RouterInit): Router {
     state.fetchers.forEach((_, key) => deleteFetcher(key));
   }
 
+  // 订阅路由器的状态更新
   // Subscribe to state updates for the router
   function subscribe(fn: RouterSubscriber) {
-    subscribers.add(fn);
+    // 添加
+    subscribers.add(fn); // +++
+
+    // subscribers是一个Set
+
+    // 返回一个删除函数
     return () => subscribers.delete(fn);
   }
 
+  // 更新我们的状态并通知调用上下文更改 // +++
   // Update our state and notify the calling context of the change
   function updateState(newState: Partial<RouterState>): void {
-    state = {
-      ...state,
-      ...newState,
+    // 直接【新创建一个对象】赋值给state变量 - 以便于下面的router.state这个【访问器属性】可以动态的获取这里的state变量的值啦 ~
+    state = { // 新创建一个对象
+      ...state, // 浅拷贝
+      ...newState, // 浅拷贝
+      // 重写 // +++
     };
-    subscribers.forEach((subscriber) => subscriber(state));
+
+    // 一一执行订阅者函数 // +++ // 其实就是通知状态已变化啦 ~ // +++ ！！！
+
+    // 这样在RouterProvider函数式组件中使用useSyncExternalStoreShim hook获取到的就是这里最新的state对象啦
+    // 而这里的state对象是一个新创建的，所以最终就会采用这里新的对象
+
+    // ++++++
+    // 要知道在Routes组件中使用的useRoutes hook中会再一次的执行matchRoutes函数的（它所需要的routes来源于router.routes（【访问器属性】）所返回的数据路由dataRoutes），
+    // 而这一次的matches将会作为需要渲染的结果元素的 // ++++++
+    // ++++++
+    // createRouter以及startNavigation中所做的matchRoutes函数执行都是为了对于没有匹配而提前进行getNotFoundMatches的处理
+    // 而最终渲染的关键就在useRoutes hook中会再一次的执行matchRoutes函数所返回的匹配结果然后进行构建结构交给react渲染元素啦 ~
+
+    // +++
+    // 其实也就是在RouterProvider函数式组件中使用useSyncExternalStoreShim hook - 
+    // 导致react把内部的handleStoreChange（包括forceUpdate）作为函数存入到当前的subscribers集合中，所以这里执行也就是handleStoreChange函数的执行啦 ~ 最终就会引起强制更新啦 ~） // +++
+    subscribers.forEach((subscriber) => subscriber(state)); // +++
   }
 
   // Complete a navigation returning the state.navigation back to the IDLE_NAVIGATION
@@ -849,7 +875,7 @@ export function createRouter(init: RouterInit): Router {
   // - Location is a required param
   // - Navigation will always be set to IDLE_NAVIGATION
   // - Can pass any other state in newState
-  function completeNavigation(
+  function completeNavigation( // 【完成导航】函数 // +++
     location: Location,
     newState: Partial<Omit<RouterState, "action" | "location" | "navigation">>
   ): void {
@@ -878,16 +904,17 @@ export function createRouter(init: RouterInit): Router {
         }
       : {};
 
+    // 【更新状态】函数的执行 - 重点！！！ // +++ ！！！这里是引发页面更新的核心逻辑 - 通知状态变化了 ~ ！！！ - 页面就会进行更新啦 ~
     updateState({
       // Clear existing actionData on any completed navigation beyond the original
       // action, unless we're currently finishing the loading/actionReload state.
       // Do this prior to spreading in newState in case we got back to back actions
       ...(isActionReload ? {} : { actionData: null }),
-      ...newState,
-      ...newLoaderData,
-      historyAction: pendingAction,
-      location,
-      initialized: true,
+      ...newState, // +++ new state对象浅拷贝在里面
+      ...newLoaderData, // +++
+      historyAction: pendingAction, // +++
+      location, // +++
+      initialized: true, // +++ 已初始化标记为true啦 ~ // ！！！
       navigation: IDLE_NAVIGATION,
       revalidation: "idle",
       // Don't restore on submission navigations
@@ -900,13 +927,17 @@ export function createRouter(init: RouterInit): Router {
     if (isUninterruptedRevalidation) {
       // If this was an uninterrupted revalidation then do not touch history
     } else if (pendingAction === HistoryAction.Pop) {
+      // 不对 POP 执行任何操作 - URL 已更新 // +++
       // Do nothing for POP - URL has already been updated
     } else if (pendingAction === HistoryAction.Push) {
-      init.history.push(location, location.state);
+      init.history.push(location, location.state); // 然后使用history的push函数 // +++ 其实就是更新地址栏中的url！！！
     } else if (pendingAction === HistoryAction.Replace) {
-      init.history.replace(location, location.state);
+      init.history.replace(location, location.state); // 然后使用history的replace函数 // +++ 其实就是更新地址栏中的url！！！
     }
 
+    // +++
+    // 【重置】有状态导航变量 // +++
+    // +++
     // Reset stateful navigation vars
     pendingAction = HistoryAction.Pop;
     pendingPreventScrollReset = false;
@@ -916,6 +947,7 @@ export function createRouter(init: RouterInit): Router {
     cancelledFetcherLoads = [];
   }
 
+  // 触发一个导航事件，它可以是一个数值POP或一个PUSH替换为可选提交
   // Trigger a navigation event, which can either be a numerical POP or a PUSH
   // replace with an optional submission
   async function navigate(
@@ -923,31 +955,37 @@ export function createRouter(init: RouterInit): Router {
     opts?: RouterNavigateOptions
   ): Promise<void> {
     if (typeof to === "number") {
-      init.history.go(to);
-      return;
+      init.history.go(to); // 是数字的话直接history的go函数执行就好了 - 原因在于popstate事件的监听啦 ~ 最终会执行此事件的响应函数（它在initialize函数中监听的） - 然后就执行了【开始导航】函数啦 ~
+      return; // 直接返回return即可啦 ~
     }
 
-    let { path, submission, error } = normalizeNavigateOptions(to, opts);
+    // 序列化导航参数
+    let { path /** /contacts/蔡文静 */, submission, error } = normalizeNavigateOptions(to, opts); // 多了表单项的额外逻辑，它会把表单项转为search拼接到路径的后面形成/xxx?xxx=xxx这种格式的 // +++
+    // 得到的这个path还是/contacts/蔡文静
 
+    // 创建location对象 // +++
     let location = createLocation(state.location, path, opts && opts.state);
+    // 直接返回一个{pathname: '/contacts/蔡文静', search, hash, ...}格式的对象 // +++
 
     // When using navigate as a PUSH/REPLACE we aren't reading an already-encoded
     // URL from window.location, so we need to encode it here so the behavior
     // remains the same as POP and non-data-router usages.  new URL() does all
     // the same encoding we'd get from a history.pushState/window.location read
     // without having to touch history
-    location = init.history.encodeLocation(location);
+    location = init.history.encodeLocation(location); // 对location对象进行【编码】 // +++
+    // 其实就是使用new URL()对最终产生的拼接路径进行处理得到解码后的选项然后重写这个location对象中的属性啦 ~ // +++
 
     let historyAction =
       (opts && opts.replace) === true || submission != null
         ? HistoryAction.Replace
-        : HistoryAction.Push;
+        : HistoryAction.Push; // 'PUSH'
     let preventScrollReset =
       opts && "preventScrollReset" in opts
         ? opts.preventScrollReset === true
         : undefined;
 
-    return await startNavigation(historyAction, location, {
+    // 开始导航函数的执行 // +++
+    return await startNavigation(historyAction /** PUSH */, location /** 上面的处理后的location对象 */, {
       submission,
       // Send through the formData serialization error if we have one so we can
       // render at the right error boundary after we match routes
@@ -993,7 +1031,7 @@ export function createRouter(init: RouterInit): Router {
   // Start a navigation to the given action/location.  Can optionally provide a
   // overrideNavigation which will override the normalLoad in the case of a redirect
   // navigation
-  async function startNavigation(
+  async function startNavigation( // 【开始导航】函数
     historyAction: HistoryAction,
     location: Location,
     opts?: {
@@ -1008,7 +1046,7 @@ export function createRouter(init: RouterInit): Router {
     // Abort any in-progress navigations and start a new one. Unset any ongoing
     // uninterrupted revalidations unless told otherwise, since we want this
     // new navigation to update history normally
-    pendingNavigationController && pendingNavigationController.abort();
+    pendingNavigationController && pendingNavigationController.abort(); // 待处理的导航控制器直接执行【中止】函数 // +++
     pendingNavigationController = null;
     pendingAction = historyAction;
     isUninterruptedRevalidation =
@@ -1020,31 +1058,51 @@ export function createRouter(init: RouterInit): Router {
     pendingPreventScrollReset = (opts && opts.preventScrollReset) === true;
 
     let loadingNavigation = opts && opts.overrideNavigation;
-    let matches = matchRoutes(dataRoutes, location, init.basename);
+    let matches = matchRoutes(dataRoutes /** 数据路由 */, location /** location对象 - 其实就是基于to产生的{pathname, search, hash, ...} */, init.basename); // 再一次执行【匹配路由】函数
+    /* 
+    {
+      params: {
+        contactId: '蔡文静'
+      },
+      pathname: '/',
+      pathnameBase: '/',
+      route原对象
+    }
+    {
+      params: {
+        contactId: '蔡文静'
+      },
+      pathname: '/contacts/蔡文静',
+      pathnameBase: '/contacts/蔡文静',
+      route原对象
+    }
+    */
 
+    // 如果我们什么都不匹配，则在根错误边界上使用 404 进行短路
     // Short circuit with a 404 on the root error boundary if we match nothing
     if (!matches) {
       let {
         matches: notFoundMatches,
         route,
         error,
-      } = getNotFoundMatches(dataRoutes);
+      } = getNotFoundMatches(dataRoutes); // 获取【找不到】匹配 // +++
       // Cancel all pending deferred on 404s since we don't keep any routes
       cancelActiveDeferreds();
-      completeNavigation(location, {
+      completeNavigation(location, { // 直接完成导航啦 ~ // ！！！
         matches: notFoundMatches,
         loaderData: {},
         errors: {
           [route.id]: error,
         },
       });
-      return;
+      return; // +++
     }
 
+    // 如果只是哈希更改，则短路
     // Short circuit if it's only a hash change
-    if (isHashChangeOnly(state.location, location)) {
-      completeNavigation(location, { matches });
-      return;
+    if (isHashChangeOnly(state.location, location)) { // 是否只有hash变化了
+      completeNavigation(location, { matches }); // 完成导航 // ！！！
+      return; // +++
     }
 
     // Create a controller/Request for this navigation
@@ -1111,8 +1169,9 @@ export function createRouter(init: RouterInit): Router {
     // been assigned to a new controller for the next navigation
     pendingNavigationController = null;
 
-    completeNavigation(location, {
-      matches,
+    // 【完成导航】函数的执行
+    completeNavigation(location /** {pathname: '/contacts/蔡文静', search, hash, ...} */, { // newState对象 // +++
+      matches, // 匹配的结果 - 上面的matches数组 // +++
       loaderData,
       errors,
     });
@@ -1966,9 +2025,9 @@ export function createRouter(init: RouterInit): Router {
     get state() {
       return state; // 返回当前作用域中state变量指向的值 // +++ 因为当前是【访问器】属性 所以每次获取都会获取当前作用域下的最新的state变量指向的值啦 ~
     },
-    // 数据路由
+    // 返回数据路由
     get routes() {
-      return dataRoutes;
+      return dataRoutes; // 返回数据路由 // ++++++
     },
     // 初始化函数 // +++
     initialize,
@@ -1976,7 +2035,7 @@ export function createRouter(init: RouterInit): Router {
     subscribe,
     enableScrollRestoration,
     // 导航函数 // +++
-    navigate,
+    navigate, // navigate这个函数
     fetch,
     revalidate,
     // Passthrough to history-aware createHref used by useHref so we get proper
@@ -2434,7 +2493,7 @@ export function getStaticContextFromError(
 
 // Normalize navigation options by converting formMethod=GET formData objects to
 // URLSearchParams so they behave identically to links with query params
-function normalizeNavigateOptions(
+function normalizeNavigateOptions( // 序列化导航参数
   to: To,
   opts?: RouterNavigateOptions,
   isFetcher = false
@@ -2443,7 +2502,7 @@ function normalizeNavigateOptions(
   submission?: Submission;
   error?: ErrorResponse;
 } {
-  let path = typeof to === "string" ? to : createPath(to);
+  let path = typeof to === "string" ? to : createPath(to); // 产生字符串的
 
   // Return location verbatim on non-submission navigations
   if (!opts || (!("formMethod" in opts) && !("formData" in opts))) {
@@ -2470,9 +2529,9 @@ function normalizeNavigateOptions(
   }
 
   // Flatten submission onto URLSearchParams for GET submissions
-  let parsedPath = parsePath(path);
+  let parsedPath = parsePath(path); // 又解析路径为一个对象
   try {
-    let searchParams = convertFormDataToSearchParams(opts.formData);
+    let searchParams = convertFormDataToSearchParams(opts.formData); // 转换表单数据为搜索参数xxx=xxx&yyy=yyy
     // Since fetcher GET submissions only run a single loader (as opposed to
     // navigation GET submissions which run all loaders), we need to preserve
     // any incoming ?index params
@@ -2483,7 +2542,7 @@ function normalizeNavigateOptions(
     ) {
       searchParams.append("index", "");
     }
-    parsedPath.search = `?${searchParams}`;
+    parsedPath.search = `?${searchParams}`; // 添加search属性值 // +++
   } catch (e) {
     return {
       path,
@@ -2495,7 +2554,8 @@ function normalizeNavigateOptions(
     };
   }
 
-  return { path: createPath(parsedPath) };
+  // 返回这个对象
+  return { path: createPath(parsedPath) /** 生成一个路径/xxx?xxx=xxx#xxx这种格式的 */ };
 }
 
 function getLoaderRedirect(

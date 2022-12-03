@@ -150,12 +150,13 @@ export interface NavigateFunction {
 }
 
 /**
+ * 返回用于更改位置的命令式方法。由<Link>使用，但也可由其他元素使用以更改位置。
  * Returns an imperative method for changing the location. Used by <Link>s, but
  * may also be used by other elements to change the location.
  *
  * @see https://reactrouter.com/docs/en/v6/hooks/use-navigate
  */
-export function useNavigate(): NavigateFunction {
+export function useNavigate(): NavigateFunction { // useNavigate hook
   invariant(
     useInRouterContext(),
     // TODO: This error is probably because they somehow have 2 versions of the
@@ -163,19 +164,30 @@ export function useNavigate(): NavigateFunction {
     `useNavigate() may be used only in the context of a <Router> component.`
   );
 
-  let { basename, navigator } = React.useContext(NavigationContext);
-  let { matches } = React.useContext(RouteContext);
-  let { pathname: locationPathname } = useLocation();
+  let { basename, navigator } = React.useContext(NavigationContext); // 使用【导航上下文】// +++
+  let { matches } = React.useContext(RouteContext); // 使用【路由上下文】 // +++
+  let { pathname: locationPathname } = useLocation(); // useLocation hook 其实就是使用【位置上下文】然后取出location属性值对象 // +++
 
+  // 先说明一下注意事项：这个matches数组来源于当前使用的【路由上下文】，而这个路由上下文中的提供的值不是固定的（可以参考下面所书写出来的结构）那么所以
+  // 这个matches的值就和当前useNavigate hook所在的层次关系是相关联的 - 那么就需要去看这个hook出现在了那一层 - 那么距离这一层最近的祖先【路由上下文】的Provider组件所提供的值对象中的matches数组值就是这里的值啦 ~
   let routePathnamesJson = JSON.stringify(
     getPathContributingMatches(matches).map((match) => match.pathnameBase)
+    // getPathContributingMatches: 其实就是过滤出匹配数组中第一个匹配元素还有匹配元素对应的route源对象的path属性值是有的且长度>0的也就是不为空串 // +++
+    // 然后映射这些匹配对象的pathnameBase为一个数组
+    // 接着使用JSON.stringify函数进行字符串化得到一个json字符串 // +++
   );
 
-  let activeRef = React.useRef(false);
-  React.useEffect(() => {
-    activeRef.current = true;
+  // 活跃ref
+  let activeRef = React.useRef(false); // 默认值为false // +++
+  // 默认失活状态 // +++
+
+  // useEffect中又更改为true // +++
+  React.useEffect(() => { // 千万不要忘记useEffect的create和destroy函数的调用是在postMessage产生的【宏任务】中异步去执行的 - 当然它是在渲染更新dom之后才去异步执行的 // +++
+    activeRef.current = true; // 标记为true
+    // 激活状态 // +++
   });
 
+  // navigate函数
   let navigate: NavigateFunction = React.useCallback(
     (to: To | number, options: NavigateOptions = {}) => {
       warning(
@@ -184,33 +196,51 @@ export function useNavigate(): NavigateFunction {
           `your component is first rendered.`
       );
 
+      // to: /contacts/蔡文静
+
+      // 若是失活状态则直接return // +++
       if (!activeRef.current) return;
 
+      // to是为数字 - 则直接执行【导航器】的go函数 // +++
       if (typeof to === "number") {
         navigator.go(to);
-        return;
+        return; // return
       }
 
+      // 解析to
       let path = resolveTo(
-        to,
-        JSON.parse(routePathnamesJson),
-        locationPathname,
-        options.relative === "path"
+        to, // /contacts/蔡文静
+        JSON.parse(routePathnamesJson), // 一个数组 - 这个数组和当前hook最近的祖先【路由上下文】的Provider组件提供的值对象中的matches属性值有关系的 - 因为它是在上面就直接执行啦 ~
+        locationPathname, // 当前location对象中的pathname // +++
+        // /contacts/张佳宁
+        options.relative === "path" // options对象中的relative（相对）属性值是否为'path'值
+        // false
       );
+      // +++
+      // 主要逻辑就是
+      // 对应to若是以/开始的那么直接就是to // +++ 这个要注意的！！！ // +++
+      // 若to不是以/开始的那么需要和from进行拼接返回最终的pathname的 // +++
+      // 其它对于to支持../ ./等格式语法处理逻辑具体看该函数内部的处理 - 其实也就是拿确定后的from和当前的to进行一个拼接产生最终的pathname路径名的啦 ~
+      // +++
 
       // If we're operating within a basename, prepend it to the pathname prior
       // to handing off to history.  If this is a root navigation, then we
       // navigate to the raw basename which allows the basename to have full
       // control over the presence of a trailing slash on root links
-      if (basename !== "/") {
+      if (basename !== "/") { // 在Router函数式组件中所提供的值对象中的basename就是/ // +++ 这点要注意！！！
         path.pathname =
           path.pathname === "/"
             ? basename
             : joinPaths([basename, path.pathname]);
       }
 
-      (!!options.replace ? navigator.replace : navigator.push)(
-        path,
+      // 这个navigator对象就在Router函数式组件中使用NavigationContext的Provider组件进行提供的
+      // 而它又来源于Router组件的属性
+      // 而这个属性又是在RouterProvider函数式组件中对Router组件进行传递的navigator这个prop属性的啦 ~
+      // 具体看这个RouterProvider组件中所计算出来的navigator对象 // +++
+
+      (!!options.replace /** options中是否有replace参数 */ ? navigator.replace /** 使用replace函数 */ : navigator.push /** 使用push函数 */)(
+        path, // 一个对象{pathname: '/contacts/蔡文静', search, hash, ...}
         options.state,
         options
       );
@@ -218,6 +248,7 @@ export function useNavigate(): NavigateFunction {
     [basename, navigator, routePathnamesJson, locationPathname]
   );
 
+  // 返回上面的navigate函数 // +++
   return navigate;
 }
 

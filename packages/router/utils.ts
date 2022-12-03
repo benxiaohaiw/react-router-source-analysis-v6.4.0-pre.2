@@ -1679,44 +1679,56 @@ export function warning(cond: any, message: string): void {
 }
 
 /**
+ * 返回相对于给定路径名的已解析路径对象。
  * Returns a resolved path object relative to the given pathname.
  *
  * @see https://reactrouter.com/docs/en/v6/utils/resolve-path
  */
-export function resolvePath(to: To, fromPathname = "/"): Path {
+export function resolvePath(to: To, fromPathname = "/" /** 默认为/ */): Path { // 解析路径
   let {
-    pathname: toPathname,
+    pathname: toPathname, // 取出路径名
     search = "",
     hash = "",
-  } = typeof to === "string" ? parsePath(to) : to;
+  } = typeof to === "string" ? parsePath(to) /** 解析路径 */ : to;
 
-  let pathname = toPathname
-    ? toPathname.startsWith("/")
-      ? toPathname
-      : resolvePathname(toPathname, fromPathname)
-    : fromPathname;
+  let pathname = toPathname // 有无去路径名
+    ? toPathname.startsWith("/") // 路径名是否以/开始的 - 表示不是相对的直接就是一个新的
+      ? toPathname // 那么直接是去路径名
+      //不是/开始的表示相对的那么需要和form进行拼接的 // +++
+      : resolvePathname(toPathname, fromPathname) // 解析路径名 - 主要是进行和from以及to进行拼接的 - 里面牵扯到../ ./一些语法格式的处理
+    : fromPathname; // 这里回退到from路径名 // +++
 
   return {
-    pathname,
-    search: normalizeSearch(search),
-    hash: normalizeHash(hash),
+    pathname, // 最终的路径名 // +++
+    search: normalizeSearch(search), // 序列化search // +++ 主要就是确保?的
+    hash: normalizeHash(hash), // 序列化hash // +++ 主要就是确保#的
   };
 }
 
+// 解析路径名
 function resolvePathname(relativePath: string, fromPathname: string): string {
-  let segments = fromPathname.replace(/\/+$/, "").split("/");
-  let relativeSegments = relativePath.split("/");
+  let segments = fromPathname.replace(/\/+$/, "").split("/"); // 替换尾部/一个或多个为空串 - 然后以/进行分割 // +++ 用来下面再次进行拼接的 // +++
+  let relativeSegments = relativePath.split("/"); // 以/进行分割 // 下面遍历
 
+  // 遍历相对部分数组
   relativeSegments.forEach((segment) => {
-    if (segment === "..") {
+    // ../ 要去的部分中有.. 那么需要把from末尾弹出一个以表示上一级 // +++
+    if (segment === "..") { // 是否为.. // +++
+      // 保留根 "" 段，以便路径名从 / 开始
       // Keep the root "" segment so the pathname starts at /
-      if (segments.length > 1) segments.pop();
-    } else if (segment !== ".") {
-      segments.push(segment);
+      if (segments.length > 1) segments.pop(); // 长度是否>1则pop出去
+    } else if (segment !== ".") { // 不是.的 // 不是./ 是xxx/
+      segments.push(segment); // 推入进来 // +++
     }
+    // +++ 整体的逻辑
+    // 省略掉./这样的因为它就表示from当前
+    // ../这样的需要from弹出末尾一个以表示上一级
+    // xxx/这种直接拼接到from的后面即可啦 ~
+    // +++
   });
 
-  return segments.length > 1 ? segments.join("/") : "/";
+  // 以/拼接from部分数组以表示最终的路径 // +++
+  return segments.length > 1 ? segments.join("/") : "/"; // 回退为/
 }
 
 function getInvalidPathError(
@@ -1760,10 +1772,11 @@ function getInvalidPathError(
  */
 export function getPathContributingMatches<
   T extends AgnosticRouteMatch = AgnosticRouteMatch
->(matches: T[]) {
+>(matches: T[]) { // 获取路径贡献匹配
+  // 其实就是过滤出匹配数组中第一个匹配元素还有匹配元素对应的route源对象的path属性值是有的且长度>0的也就是不为空串 // +++
   return matches.filter(
     (match, index) =>
-      index === 0 || (match.route.path && match.route.path.length > 0)
+      index === 0 || (match.route.path && match.route.path.length > 0) // +++
   );
 }
 
@@ -1774,13 +1787,13 @@ export function resolveTo(
   toArg: To,
   routePathnames: string[],
   locationPathname: string,
-  isPathRelative = false
+  isPathRelative = false // 路径是否为相对的 -> 默认为false
 ): Path {
   let to: Partial<Path>;
   if (typeof toArg === "string") {
-    to = parsePath(toArg);
+    to = parsePath(toArg); // 字符串则直接进行解析路径啦 ~ 还是解析为{pathname, search, hash}这样格式的对象 // +++
   } else {
-    to = { ...toArg };
+    to = { ...toArg }; // 浅拷贝一下
 
     invariant(
       !to.pathname || !to.pathname.includes("?"),
@@ -1796,9 +1809,12 @@ export function resolveTo(
     );
   }
 
+  // 是否为空串路径
   let isEmptyPath = toArg === "" || to.pathname === "";
-  let toPathname = isEmptyPath ? "/" : to.pathname;
+  // 去的路径名
+  let toPathname = isEmptyPath ? "/" : to.pathname; // 是空串路径则回退为/否则还就是to的pathname属性值 // +++
 
+  // 准备from
   let from: string;
 
   // Routing is relative to the current pathname if explicitly requested.
@@ -1810,45 +1826,66 @@ export function resolveTo(
   // `to` values that do not provide a pathname. `to` can simply be a search or
   // hash string, in which case we should assume that the navigation is relative
   // to the current location's pathname and *not* the route pathname.
-  if (isPathRelative || toPathname == null) {
-    from = locationPathname;
+  if (isPathRelative || toPathname == null) { // 路径是否为相对的 或者 去的路径名==null // +++
+    from = locationPathname; // 那么from为当前location对象的pathname属性值 // +++
   } else {
-    let routePathnameIndex = routePathnames.length - 1;
+    let routePathnameIndex = routePathnames.length - 1; // 数组的最后一个元素的下标 // +++
 
+    // 去的路径名若以..开始的
     if (toPathname.startsWith("..")) {
-      let toSegments = toPathname.split("/");
+      // 得到去的部分数组
+      let toSegments = toPathname.split("/"); // 先按照/进行分割 // +++
 
       // Each leading .. segment means "go up one route" instead of "go up one
       // URL segment".  This is a key difference from how <a href> works and a
       // major reason we call this a "to" value instead of a "href".
-      while (toSegments[0] === "..") {
-        toSegments.shift();
-        routePathnameIndex -= 1;
+      while (toSegments[0] === "..") { // 只要这个数组的第一个元素的值为'..'那么就循环开始
+        toSegments.shift(); // 删除数组的第一个元素
+        routePathnameIndex -= 1; // 下标减1
       }
+      // 这是用来决定上一级是谁的 - 这个下标 // +++
 
-      to.pathname = toSegments.join("/");
+      // 然后再按照/进行拼接赋值给to的pathname属性 // +++
+      to.pathname = toSegments.join("/"); // 这是去除了to中..之后再组合的路径，但是需要注意的是开头就没有了/了，那么这样就会影响下面的resolvePath逻辑会造成最终的pathname就需要和from进行拼接啦 ~ // +++
     }
 
+    // 如果".."段比父路由多，则相对于根/ URL解析。 // +++
     // If there are more ".." segments than parent routes, resolve relative to
     // the root / URL.
-    from = routePathnameIndex >= 0 ? routePathnames[routePathnameIndex] : "/";
+    from = routePathnameIndex >= 0 ? routePathnames[routePathnameIndex] /** 直接是取这个位置的路径名作为from */ : "/" /** 最终是回退到/吧 ~ */;
   }
+  // 这段逻辑是在准备from参数 // +++
+  // 主要是to这里支持../xxx这样的写法，所以需要确定from在面对..时的上一级是谁，然后还需要删除to中..这样的格式字符串的然后最终整合最终to字符串
 
+  // 解析路径
   let path = resolvePath(to, from);
+  // 这个的函数的主要逻辑 // +++
+  // +++
+  // 对应to若是以/开始的那么直接就是to
+  // 若to不是以/开始的那么需要和from进行拼接返回最终的pathname的 // +++
+  // +++
 
+  // 下面这段逻辑是决定最终的pathname末尾是否拼接/这个字符的 // +++
+
+  // 如果原来的"to"有一个，请确保路径名有一个尾部斜杠
   // Ensure the pathname has a trailing slash if the original "to" had one
-  let hasExplicitTrailingSlash =
+  let hasExplicitTrailingSlash = // 是否有明确的尾部斜杠 // +++
     toPathname && toPathname !== "/" && toPathname.endsWith("/");
+  
+  // 或者如果这是指向当前路径的链接，该路径有一个尾部斜杠
   // Or if this was a link to the current path which has a trailing slash
-  let hasCurrentTrailingSlash =
+  let hasCurrentTrailingSlash = // 是否有当前的尾部斜杠
     (isEmptyPath || toPathname === ".") && locationPathname.endsWith("/");
+
+  // 用来决定pathname的尾部是否拼接/的
   if (
-    !path.pathname.endsWith("/") &&
-    (hasExplicitTrailingSlash || hasCurrentTrailingSlash)
+    !path.pathname.endsWith("/") /** 目前这个路径末尾不是以/结尾的 */ && // 且
+    (hasExplicitTrailingSlash || hasCurrentTrailingSlash) // 有明确的末尾斜杠 或 有当前的末尾斜杠 // +++
   ) {
-    path.pathname += "/";
+    path.pathname += "/"; // 直接在路径末尾拼接/即可啦 ~
   }
 
+  // 返回这个path对象 // +++
   return path;
 }
 
@@ -1885,16 +1922,20 @@ export const normalizePathname = (pathname: string): string =>
  */
 export const normalizeSearch = (search: string): string =>
   !search || search === "?"
-    ? ""
-    : search.startsWith("?")
-    ? search
-    : "?" + search;
+    ? "" // 空串
+    : search.startsWith("?") // 以?开始的
+    ? search // search
+    : "?" + search; // 开头拼接?
+// 序列化search
+// 主要就是确保?
 
 /**
  * @private
  */
 export const normalizeHash = (hash: string): string =>
-  !hash || hash === "#" ? "" : hash.startsWith("#") ? hash : "#" + hash;
+  !hash || hash === "#" ? "" /** 空串 */ : hash.startsWith("#") ? hash /** 还是hash */ : "#" + hash /** 否则拼接一个# */;
+// 序列化hash
+// 主要就是确保#的
 
 export type JsonFunction = <Data>(
   data: Data,

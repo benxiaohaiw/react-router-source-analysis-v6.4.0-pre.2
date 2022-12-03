@@ -79,8 +79,10 @@ export function RouterProvider({ // RouterProvider函数式组件 // +++
       // +++
       // 使用的都是路由器对象的navigate函数 // +++
       go: (n) => router.navigate(n),
+      // push函数
       push: (to, state, opts) =>
-        router.navigate(to, {
+      // 就是路由器对象中的navigate函数的执行啦 ~
+        router.navigate(to /** {pathname: '/contacts/蔡文静', search, hash, ...} */, {
           state,
           preventScrollReset: opts?.preventScrollReset,
         }),

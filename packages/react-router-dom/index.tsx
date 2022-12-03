@@ -413,7 +413,7 @@ export interface LinkProps
 /**
  * The public API for rendering a history-aware <a>.
  */
-export const Link = React.forwardRef<HTMLAnchorElement, LinkProps>(
+export const Link = React.forwardRef<HTMLAnchorElement, LinkProps>( // Link组件
   function LinkWithRef(
     {
       onClick,
@@ -422,35 +422,43 @@ export const Link = React.forwardRef<HTMLAnchorElement, LinkProps>(
       replace,
       state,
       target,
-      to,
+      to, // /contacts/蔡文静
       preventScrollReset,
       ...rest
     },
     ref
   ) {
     let href = useHref(to, { relative });
-    let internalOnClick = useLinkClickHandler(to, {
+
+    // 执行useLinkClickHandler hook返回一个【内部onClick】函数 // +++
+    let internalOnClick = useLinkClickHandler(to /** /contacts/蔡文静 */, {
       replace,
       state,
       target,
       preventScrollReset,
       relative,
     });
+    
+    // 处理点击事件
     function handleClick(
       event: React.MouseEvent<HTMLAnchorElement, MouseEvent>
     ) {
-      if (onClick) onClick(event);
-      if (!event.defaultPrevented) {
-        internalOnClick(event);
+      if (onClick) onClick(event); // 执行onClick属性函数
+      if (!event.defaultPrevented) { // 没有
+        internalOnClick(event); // 执行【内部onClick】函数 // +++
       }
     }
 
+    // 所以实际上这里a标签的点击最终会执行useNavigate hook执行后返回的这个navigate函数 - 而这个navigate函数最终又会去执行router.navigate函数 - 而这个函数内又去执行 -> 
+    // 【开始导航】函数 -> 【完成导航】函数 -> updateState（内部一一去执行router下的subscribers集合中的subscriber函数其实也就是在RouterProvider函数式组件中使用useSyncExternalStoreShim hook - 
+    // 导致react把内部的handleStoreChange（包括forceUpdate）作为函数存入到当前的subscribers集合中，所以这里执行也就是handleStoreChange函数的执行啦 ~ 最终就会引起强制更新啦 ~） // +++
+
     return (
       // eslint-disable-next-line jsx-a11y/anchor-has-content
-      <a
+      <a // 直接就是一个a标签 // +++
         {...rest}
         href={href}
-        onClick={reloadDocument ? onClick : handleClick}
+        onClick={reloadDocument ? onClick : handleClick} // click事件监听函数
         ref={ref}
         target={target}
       />
@@ -751,7 +759,7 @@ function useDataRouterState(hookName: DataRouterStateHook) {
  * you need to create custom `<Link>` components with the same click behavior we
  * use in our exported `<Link>`.
  */
-export function useLinkClickHandler<E extends Element = HTMLAnchorElement>(
+export function useLinkClickHandler<E extends Element = HTMLAnchorElement>( // useLinkClickHandler hook
   to: To,
   {
     target,
@@ -767,10 +775,11 @@ export function useLinkClickHandler<E extends Element = HTMLAnchorElement>(
     relative?: RelativeRoutingType;
   } = {}
 ): (event: React.MouseEvent<E, MouseEvent>) => void {
-  let navigate = useNavigate();
-  let location = useLocation();
+  let navigate = useNavigate(); // 执行useNavigate hook // +++
+  let location = useLocation(); // 执行useLocation hook
   let path = useResolvedPath(to, { relative });
 
+  // 返回一个函数 // +++
   return React.useCallback(
     (event: React.MouseEvent<E, MouseEvent>) => {
       if (shouldProcessLinkClick(event, target)) {
@@ -783,7 +792,8 @@ export function useLinkClickHandler<E extends Element = HTMLAnchorElement>(
             ? replaceProp
             : createPath(location) === createPath(path);
 
-        navigate(to, { replace, state, preventScrollReset, relative });
+        // 直接执行navigate函数 - 就是useNavigate hook中执行后返回的navigate函数
+        navigate(to /** /contacts/蔡文静 */, { replace, state, preventScrollReset, relative });
       }
     },
     [
