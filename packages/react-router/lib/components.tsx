@@ -118,6 +118,7 @@ export function RouterProvider({ // RouterProvider函数式组件 // +++
         >
           {/* 根据路由器状态是否已初始化 */}
           {router.state.initialized ? <Routes /> /** 路由函数式组件 */ : fallbackElement /** 回退元素 */}
+          {/** 没有初始化将不会显示Routes组件，而是渲染fallbackElement，若没有fallbackElement属性这里就是对于Router组件而言它的children属性就是undefined，所以页面也就没有任何东西啦 ~ */}
         </Router>
       </DataRouterStateContext.Provider>
     </DataRouterContext.Provider>

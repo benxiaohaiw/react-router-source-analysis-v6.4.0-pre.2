@@ -2136,20 +2136,29 @@ export type RedirectFunction = (
 ) => Response;
 
 /**
+ * 重定向响应。设置状态代码和"位置"标头。
+ * 默认"302 Found"
  * A redirect response. Sets the status code and the `Location` header.
  * Defaults to "302 Found".
  */
-export const redirect: RedirectFunction = (url, init = 302) => {
+export const redirect: RedirectFunction = (url, init = 302 /** 默认302 */) => { // 重定向 // +++
   let responseInit = init;
   if (typeof responseInit === "number") {
     responseInit = { status: responseInit };
   } else if (typeof responseInit.status === "undefined") {
     responseInit.status = 302;
   }
+  // 状态码的设置 // +++
 
-  let headers = new Headers(responseInit.headers);
-  headers.set("Location", url);
+  // 造一个Headers对象
+  let headers = new Headers(responseInit.headers); // 额外的、用户设置的头 // +++
+  headers.set("Location", url); // 设置Location头属性 // +++
 
+  // +++
+  // 返回一个Response实例对象 - 这样在handleLoaders -> callLoadersAndMaybeResolveData -> callLoaderOrAction就会针对这个Response结果做相应的转换处理啦 ~
+  // 这样在最终的handleLoaders函数中就会【倒序】查找是否有【重定向】，之后就会startRedirectNavigation -> startNavigation
+  // 之后对后续的逻辑就会产生一个【短路】 // +++
+  // +++
   return new Response(null, {
     ...responseInit,
     headers,

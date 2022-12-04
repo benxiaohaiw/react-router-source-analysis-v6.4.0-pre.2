@@ -711,7 +711,8 @@ export function createRouter(init: RouterInit): Router {
   // 最初始匹配中是否有loader属性然后取反 或者 init参数对象中的hydrationData属性 != null 得到是否已初始化 // +++
   // +++
   let initialized =
-    !initialMatches.some((m) => m.route.loader) || init.hydrationData != null; // +++
+    !initialMatches.some((m) => m.route.loader) || init.hydrationData != null; // +++ // 初始匹配中一旦相应的route中loader属性存在一个，那么这里的初始化标记将变为false - 表示没有进行初始化 // +++
+    // 那么这个标记将影响到当前的initialize函数中的逻辑（没有初始化那么需要做一个初始化也就是会在初始化阶段中额外执行一次startNavigation）以及RouterProvider组件中关于fallbackElement的显示的逻辑
   // +++
 
   // 准备【路由器对象】 // +++
@@ -725,7 +726,7 @@ export function createRouter(init: RouterInit): Router {
     historyAction: init.history.action, // 'POP'
     location: init.history.location, // 实际上是根据window.location创建一个location对象 - {pathname, search, hash, ...}
     matches: initialMatches, // 初始化匹配
-    initialized, // ++++++ true or false
+    initialized, // ++++++ true or false // +++
     navigation: IDLE_NAVIGATION, // +++
     /* 
     // 空闲导航
@@ -741,7 +742,8 @@ export function createRouter(init: RouterInit): Router {
     restoreScrollPosition: null,
     preventScrollReset: false,
     revalidation: "idle", // 重新生效 - 空闲
-    loaderData: (init.hydrationData && init.hydrationData.loaderData) || {},
+    // loader数据对象 // +++ 默认为空对象 // +++
+    loaderData: (init.hydrationData && init.hydrationData.loaderData) || {}, /// 空对象 // +++
     actionData: (init.hydrationData && init.hydrationData.actionData) || null,
     errors: (init.hydrationData && init.hydrationData.errors) || initialErrors,
     fetchers: new Map(), // 请求者 - 一个map
@@ -806,9 +808,10 @@ export function createRouter(init: RouterInit): Router {
 
     // 如果需要，开始初始数据加载。使用 Pop 避免修改history
     // Kick off initial data load if needed.  Use Pop to avoid modifying history
-    if (!state.initialized) { // 若没有初始化
-      // 这里直接先进行【开始导航】 // +++
-      startNavigation(HistoryAction.Pop /** POP */, state.location);
+    if (!state.initialized) { // 若没有进行初始化 // ++++++
+      // 这里直接先进行【开始导航】 // +++ 额外的做一遍startNavigation // +++
+      startNavigation(HistoryAction.Pop /** POP */, state.location); // 没有初始化需要先进行一次【开始导航】函数的执行 // ++++++
+      // startNavigation是一个async函数 - 而这里并没有await它 - 所以并不会影响当前【初始化】函数下面逻辑的执行 - 下面直接返回router啦 ~ // ++++++
     }
 
     // 返回【路由器】对象 // +++
@@ -893,12 +896,13 @@ export function createRouter(init: RouterInit): Router {
       state.navigation.state === "loading" &&
       state.navigation.formAction?.split("?")[0] === location.pathname;
 
+    // 始终保留来自重用路由的任何现有 loaderData // +++
     // Always preserve any existing loaderData from re-used routes
     let newLoaderData = newState.loaderData
       ? {
-          loaderData: mergeLoaderData(
+          loaderData: mergeLoaderData( // 合并loader数据对象
             state.loaderData,
-            newState.loaderData,
+            newState.loaderData, // 重写！！！ // +++
             newState.matches || []
           ),
         }
@@ -912,6 +916,11 @@ export function createRouter(init: RouterInit): Router {
       ...(isActionReload ? {} : { actionData: null }),
       ...newState, // +++ new state对象浅拷贝在里面
       ...newLoaderData, // +++
+      // +++
+      // 浅拷贝 - 重写 // +++
+      // +++
+      // state.loaderData // +++
+
       historyAction: pendingAction, // +++
       location, // +++
       initialized: true, // +++ 已初始化标记为true啦 ~ // ！！！
@@ -1058,6 +1067,8 @@ export function createRouter(init: RouterInit): Router {
     pendingPreventScrollReset = (opts && opts.preventScrollReset) === true;
 
     let loadingNavigation = opts && opts.overrideNavigation;
+
+    // 又执行一次matchRoutes // +++ 重点！！！ // +++
     let matches = matchRoutes(dataRoutes /** 数据路由 */, location /** location对象 - 其实就是基于to产生的{pathname, search, hash, ...} */, init.basename); // 再一次执行【匹配路由】函数
     /* 
     {
@@ -1078,7 +1089,7 @@ export function createRouter(init: RouterInit): Router {
     }
     */
 
-    // 如果我们什么都不匹配，则在根错误边界上使用 404 进行短路
+    // 如果我们什么都不匹配，则在根错误边界上使用 404 进行短路 // +++
     // Short circuit with a 404 on the root error boundary if we match nothing
     if (!matches) {
       let {
@@ -1148,21 +1159,63 @@ export function createRouter(init: RouterInit): Router {
       loadingNavigation = navigation;
     }
 
+    /* 
+    https://reactrouter.com/en/main/route/loader
+    route.loader
+      Each route can define a "loader" function to provide data to the route element before it renders.
+      每个路由都可以定义一个“加载器”函数来在渲染之前向路由元素提供数据。
+    */
+
+    // 调用加载器 // +++
     // Call loaders
-    let { shortCircuited, loaderData, errors } = await handleLoaders(
+    let { shortCircuited /** 是否短路 */, loaderData /** loader数据对象 */, errors } = await handleLoaders( // 处理loaders // +++
       request,
-      location,
-      matches,
+      location, // 关于to的一个对象{pathname: '/contacts/蔡文静', ...}
+      matches, // matches数组
       loadingNavigation,
       opts && opts.submission,
       opts && opts.replace,
       pendingActionData,
-      pendingError
+      pendingError // undefined
     );
 
+    // +++
+    // loader函数中进行执行redirect函数执行结果作为它的返回值那么经过handleLoaders中的处理在其内部是【开始重定向导航】，之后返回短路，那么这里也就直接return啦 ~
+    // 具体的逻辑可以到packages/router/utils.ts下的redirect函数中查看 // +++
+
+    // 这里若是短路了那么直接return // +++
     if (shortCircuited) {
-      return;
+      return; // ++++++
     }
+
+    // loaderData对象就是一个以route.id为key然后以route.loader函数执行结果作为value组合的键值对存入一个空对象中 // +++
+    /* 
+    handleLoaders
+      getMatchesToLoad - 主要是获取需要进行加载的匹配matches（加载过的不需要再次加载、没有加载的那么就需要加载就会留下等等） -> matchesToLoad
+      callLoadersAndMaybeResolveData - 调用这些loader函数然后对返回的结果进行解析为相应的数据格式 -> loaderResults
+      findRedirect - 在返回的一组数据中倒序查找是否有redirect，有则直接返回
+      getLoaderRedirect - 主要就是返回一个关于redirect的location相关的navigation对象
+      startRedirectNavigation -> startNavigation
+      返回短路
+      processLoaderData - 按照loader对应的route的id作为key然后loader的结果作为value存入一个空对象中把这个对象作为loaderData啦（主要是靠matchesToLoad和loaderResults之间相互对应关系）
+        // 这个loaderResults就是来源于matchesToLoad的顺序的，所以这里按照相互对应的关系处理是没有问题的 // +++
+      返回loaderData对象
+    */
+
+    // packages/react-router/lib/hooks.tsx下的useLoaderData hook
+    /* 
+    返回最近的祖先 Route 加载器的加载器数据 // +++ 其实就是找到最近的祖先RouteContext然后获取它的matches数组中最后一个match，它就表示当前结构对应的route对象然后取出它的id在我们的loaderData对象中取值就可以啦 ~
+    /// 这个loaderData对象的整合就是在handleLoaders -> processLoaderData里面按照对应的route的id以及其loader执行后返回的值作为键值对存入对象中，之后这个loaderData对象在completeNavigation -> updateState中更新到state.loaderData中啦
+    // 而又经过RouterProvider函数式组件中的DataRouterStateContext提供值对象state，然后这个hook使用这个上下文就能够访问到state，然后按照对应的id取出值就表示对应route中loader函数执行的结果啦 ~
+    */
+    
+
+    // +++
+    // 不短路的话那么直接下面的【完成导航】逻辑的执行
+    // 对于这里处理好之后的loaderData对象在completeNavigation中是合并这个loaderData对象然后重写进state.loaderData中啦 ~
+    // 整个逻辑是这样的 // +++
+    // 那么这样在RouterProvider函数式组件中是使用DataRouterStateContext的Provider组件进行提供的值对象就是这个state
+    // 对于之后后代组件中使用的useLoaderData hook（具体看这个hook的详细逻辑） // +++
 
     // Clean up now that the action/loaders have completed.  Don't clean up if
     // we short circuited because pendingNavigationController will have already
@@ -1172,7 +1225,7 @@ export function createRouter(init: RouterInit): Router {
     // 【完成导航】函数的执行
     completeNavigation(location /** {pathname: '/contacts/蔡文静', search, hash, ...} */, { // newState对象 // +++
       matches, // 匹配的结果 - 上面的matches数组 // +++
-      loaderData,
+      loaderData, // loader数据对象 // ++++++
       errors,
     });
   }
@@ -1257,9 +1310,10 @@ export function createRouter(init: RouterInit): Router {
     };
   }
 
+  // 为给定的匹配进行调用所有适用的loaders，处理重定向、错误等。 // +++
   // Call all applicable loaders for the given matches, handling redirects,
   // errors, etc.
-  async function handleLoaders(
+  async function handleLoaders( // 处理loaders // +++
     request: Request,
     location: Location,
     matches: AgnosticDataRouteMatch[],
@@ -1283,18 +1337,35 @@ export function createRouter(init: RouterInit): Router {
       loadingNavigation = navigation;
     }
 
-    let [matchesToLoad, revalidatingFetchers] = getMatchesToLoad(
-      state,
-      matches,
+    // revalidating: 重新验证
+    // Fetchers: 请求者
+    let [matchesToLoad, revalidatingFetchers] = getMatchesToLoad( // 获取要去【加载执行（需要执行的loader）】的matches
+      state, // 路由器状态对象
+      matches, // matches数组
       submission,
-      location,
+      location, // 关于to的一个对象{pathname: '/contacts/蔡文静', ...}
       isRevalidationRequired,
       cancelledDeferredRoutes,
       cancelledFetcherLoads,
       pendingActionData,
-      pendingError,
-      fetchLoadMatches
+      pendingError, // undefined
+      fetchLoadMatches // 一个map
     );
+    // 这里的逻辑 - 具体查看该函数内部的细节 // +++
+    /* 
+    /// 这个边界id是来源于这个待处理的错误的 // +++
+
+    // 这里的逻辑是找到这个待处理错误id对应的路由匹配然后提取直到它的其部分（但不包含本身）
+    // 然后再进行过滤出
+    // 1.
+    //   是新的那么就直接留下
+    //   若不是新的但是loader数据对象中还没有数据那么也需要留下
+    //   而不是新的且有数据啦就不需要留下啦 ~
+    // 2.
+    //   【取消延迟路由】中出现的也需要加载执行
+    // 3.
+    //   符合【应该重新验证loader规则】的
+    */
 
     // Cancel pending deferreds for no-longer-matched routes or routes we're
     // about to reload.  Note that if this is an action reload we would have
@@ -1305,8 +1376,10 @@ export function createRouter(init: RouterInit): Router {
         (matchesToLoad && matchesToLoad.some((m) => m.route.id === routeId))
     );
 
+    // 如果我们没有要运行的loaders，则短路 // +++ 要注意！！！
     // Short circuit if we have no loaders to run
     if (matchesToLoad.length === 0 && revalidatingFetchers.length === 0) {
+      // 直接完成导航
       completeNavigation(location, {
         matches,
         loaderData: mergeLoaderData(state.loaderData, {}, matches),
@@ -1314,7 +1387,7 @@ export function createRouter(init: RouterInit): Router {
         errors: pendingError || null,
         actionData: pendingActionData || null,
       });
-      return { shortCircuited: true };
+      return { shortCircuited: true }; // 短路 // +++
     }
 
     // If this is an uninterrupted revalidation, we remain in our current idle
@@ -1348,8 +1421,10 @@ export function createRouter(init: RouterInit): Router {
       fetchControllers.set(key, pendingNavigationController!)
     );
 
+    // +++
+    // 返回整体的、loader的、fetcher的
     let { results, loaderResults, fetcherResults } =
-      await callLoadersAndMaybeResolveData(
+      await callLoadersAndMaybeResolveData( // 调用loaders且可能解析数据 // +++
         state.matches,
         matches,
         matchesToLoad,
@@ -1358,7 +1433,7 @@ export function createRouter(init: RouterInit): Router {
       );
 
     if (request.signal.aborted) {
-      return { shortCircuited: true };
+      return { shortCircuited: true }; // 短路 // +++
     }
 
     // Clean up _after_ loaders have completed.  Don't clean up if we short
@@ -1366,25 +1441,51 @@ export function createRouter(init: RouterInit): Router {
     // reassigned to new controllers for the next navigation
     revalidatingFetchers.forEach(([key]) => fetchControllers.delete(key));
 
+    // ++++++
+    // 如果任何loaders返回重定向响应，则启动新的 REPLACE 导航 // ++++++
     // If any loaders returned a redirect Response, start a new REPLACE navigation
-    let redirect = findRedirect(results);
+    let redirect = findRedirect(results); // 在整个结果中查找重定向 // +++
+    /* 
+    // 从最低匹配项开始查找任何返回的重定向错误
+// Find any returned redirect errors, starting from the lowest match
+function findRedirect(results: DataResult[]): RedirectResult | undefined {
+  // 【倒序】遍历查找 // 一定注意是倒序！！！ // +++
+  for (let i = results.length - 1; i >= 0; i--) {
+    let result = results[i];
+    if (isRedirectResult(result)) { // 注意：一旦找到就return // +++
+      return result;
+    }
+  }
+}
+    */
+
+    // +++
     if (redirect) {
-      let redirectNavigation = getLoaderRedirect(state, redirect);
-      await startRedirectNavigation(redirect, redirectNavigation, replace);
-      return { shortCircuited: true };
+      // 获取loader重定向
+      let redirectNavigation = getLoaderRedirect(state, redirect); // 就是返回state.navigation对象的 // +++
+      // 开始重定向导航 // +++
+      await startRedirectNavigation(redirect, redirectNavigation, replace); // 开始重定向导航 // +++
+      return { shortCircuited: true }; // 短路 // +++
+      // +++
+      // 这里是重点 // +++
+      // +++
     }
 
+    // 处理和提交loaders的输出 // +++
     // Process and commit output from loaders
     let { loaderData, errors } = processLoaderData(
       state,
       matches,
-      matchesToLoad,
-      loaderResults,
+      matchesToLoad, // +++
+      // 它俩之间做相应的对应的 // +++
+      loaderResults, // +++
       pendingError,
       revalidatingFetchers,
       fetcherResults,
       activeDeferreds
     );
+    // +++
+    // 这一步其实就是按照loader对应的route的id作为key然后loader的结果作为value存入一个空对象中把这个对象作为loaderData啦 ~ // +++
 
     // Wire up subscribers to update loaderData as promises settle
     activeDeferreds.forEach((deferredData, routeId) => {
@@ -1402,7 +1503,7 @@ export function createRouter(init: RouterInit): Router {
     let didAbortFetchLoads = abortStaleFetchLoads(pendingNavigationLoadId);
 
     return {
-      loaderData,
+      loaderData, // 返回这个loader数据对象 // +++
       errors,
       ...(didAbortFetchLoads || revalidatingFetchers.length > 0
         ? { fetchers: new Map(state.fetchers) }
@@ -1779,7 +1880,7 @@ export function createRouter(init: RouterInit): Router {
    * actually touch history until we've processed redirects, so we just use
    * the history action from the original navigation (PUSH or REPLACE).
    */
-  async function startRedirectNavigation(
+  async function startRedirectNavigation( // 开始重定向导航 // +++
     redirect: RedirectResult,
     navigation: Navigation,
     replace?: boolean
@@ -1796,13 +1897,15 @@ export function createRouter(init: RouterInit): Router {
     pendingNavigationController = null;
 
     let redirectHistoryAction =
-      replace === true ? HistoryAction.Replace : HistoryAction.Push;
+      replace === true ? HistoryAction.Replace : HistoryAction.Push; // 决定行为
 
-    await startNavigation(redirectHistoryAction, navigation.location, {
+    // 【开始导航】函数的执行 // +++
+    await startNavigation(redirectHistoryAction /** 行为 */, navigation.location /** loaction对象 */, {
       overrideNavigation: navigation,
     });
   }
 
+  // 调用loaders且可能解析数据 // +++
   async function callLoadersAndMaybeResolveData(
     currentMatches: AgnosticDataRouteMatch[],
     matches: AgnosticDataRouteMatch[],
@@ -1810,11 +1913,14 @@ export function createRouter(init: RouterInit): Router {
     fetchersToLoad: RevalidatingFetcher[],
     request: Request
   ) {
+    // 并行调用所有【导航加载器】和【重新验证fetcher加载器】，然后将结果切成单独的数组，以便我们可以相应地处理它们 // +++
     // Call all navigation loaders and revalidating fetcher loaders in parallel,
     // then slice off the results into separate arrays so we can handle them
     // accordingly
-    let results = await Promise.all([
+    let results = await Promise.all([ // await 这里
+      // 映射
       ...matchesToLoad.map((match) =>
+        // 调用loader或action
         callLoaderOrAction("loader", request, match, matches, router.basename)
       ),
       ...fetchersToLoad.map(([, href, match, fetchMatches]) =>
@@ -1827,7 +1933,13 @@ export function createRouter(init: RouterInit): Router {
         )
       ),
     ]);
+
+    // 提取前部分结果
     let loaderResults = results.slice(0, matchesToLoad.length);
+
+    // 提取的目的为了方便的相应的处理它们 // +++
+
+    // 提取后部分结果
     let fetcherResults = results.slice(matchesToLoad.length);
 
     await Promise.all([
@@ -1848,6 +1960,7 @@ export function createRouter(init: RouterInit): Router {
       ),
     ]);
 
+    // 返回整体的、loader的、fetcher的
     return { results, loaderResults, fetcherResults };
   }
 
@@ -2558,6 +2671,7 @@ function normalizeNavigateOptions( // 序列化导航参数
   return { path: createPath(parsedPath) /** 生成一个路径/xxx?xxx=xxx#xxx这种格式的 */ };
 }
 
+// 获取loader重定向 // +++
 function getLoaderRedirect(
   state: RouterState,
   redirect: RedirectResult
@@ -2565,7 +2679,7 @@ function getLoaderRedirect(
   let { formMethod, formAction, formEncType, formData } = state.navigation;
   let navigation: NavigationStates["Loading"] = {
     state: "loading",
-    location: createLocation(state.location, redirect.location),
+    location: createLocation(state.location, redirect.location), // +++
     formMethod: formMethod || undefined,
     formAction: formAction || undefined,
     formEncType: formEncType || undefined,
@@ -2574,22 +2688,24 @@ function getLoaderRedirect(
   return navigation;
 }
 
+// 过滤掉所有捕获错误下面的所有路由，因为它们不会渲染，所以我们不需要加载它们
 // Filter out all routes below any caught error as they aren't going to
 // render so we don't need to load them
-function getLoaderMatchesUntilBoundary(
+function getLoaderMatchesUntilBoundary( // 获取直到边界（不含边界）的前部分匹配loader
   matches: AgnosticDataRouteMatch[],
   boundaryId?: string
 ) {
   let boundaryMatches = matches;
-  if (boundaryId) {
-    let index = matches.findIndex((m) => m.route.id === boundaryId);
+  if (boundaryId) { // +++
+    let index = matches.findIndex((m) => m.route.id === boundaryId); // 查找和边界id相等的index
     if (index >= 0) {
-      boundaryMatches = matches.slice(0, index);
+      boundaryMatches = matches.slice(0, index); // 提取前部分（不含这个边界）
     }
   }
-  return boundaryMatches;
+  return boundaryMatches; // +++
 }
 
+// 获取要去【加载执行（需要执行的loader）】的matches
 function getMatchesToLoad(
   state: RouterState,
   matches: AgnosticDataRouteMatch[],
@@ -2608,29 +2724,59 @@ function getMatchesToLoad(
     ? Object.values(pendingActionData)[0]
     : null;
 
+  // 选择全新的或有资格重新验证的导航匹配
   // Pick navigation matches that are net-new or qualify for revalidation
-  let boundaryId = pendingError ? Object.keys(pendingError)[0] : undefined;
-  let boundaryMatches = getLoaderMatchesUntilBoundary(matches, boundaryId);
+  let boundaryId = pendingError ? Object.keys(pendingError)[0] : undefined; // undefined // +++
+
+  /// 这个边界id是来源于这个待处理的错误的 // +++
+
+  // 下面逻辑是找到这个待处理错误id对应的路由匹配然后提取直到它的其部分（但不包含本身）
+  // 然后再进行过滤出
+  // 1.
+  //   是新的那么就直接留下
+  //   若不是新的但是loader数据对象中还没有数据那么也需要留下
+  //   而不是新的且有数据啦就不需要留下啦 ~
+  // 2.
+  //   【取消延迟路由】中出现的也需要加载执行
+  // 3.
+  //   符合【应该重新验证loader规则】的
+
+  // 若边界id是undefined那么直接返回的还是matches数组
+  // 不是则在matches数组中查找这个route.id所在的index然后在matches数组中提取前部分（不包含这个id对应的match对象）
+  let boundaryMatches = getLoaderMatchesUntilBoundary(matches, boundaryId); // 获取直到边界（不含边界）的前部分匹配loader // +++
+
+  // 进行过滤 // +++
   let navigationMatches = boundaryMatches.filter(
     (match, index) =>
-      match.route.loader != null &&
-      (isNewLoader(state.loaderData, state.matches[index], match) ||
+      match.route.loader != null && // 有loader的 且
+      (isNewLoader(state.loaderData /** 空对象 */, state.matches[index] /** current中的 */, match /** 这里新的中间的 */) ||
+      /* 
+        // 是新的那么就直接留下
+        // 若不是新的但是loader数据对象中还没有数据那么也需要留下
+        // 而不是新的且有数据啦就不需要留下啦 ~
+      */
+
+        // 如果此路线有待处理的延期取消，则必须重新验证 // +++
         // If this route had a pending deferred cancelled it must be revalidated
-        cancelledDeferredRoutes.some((id) => id === match.route.id) ||
+        cancelledDeferredRoutes.some((id) => id === match.route.id) || // 取消延迟路由中出现的
+        // 应该重新验证loader
         shouldRevalidateLoader(
           state.location,
           state.matches[index],
           submission,
-          location,
+          location, // 关于to的一个对象{pathname: '/contacts/蔡文静', ...} // ++++++ 重点 // ++++++ 这是强调注意的重点 // +++
           match,
           isRevalidationRequired,
           actionResult
         ))
-  );
+  ); // 这里主要是进行筛选出需要的loader，因为在后面的逻辑里是需要去执行这个loader函数的
+  // 而这里就是在筛选需要去执行的loader的，对于那些不需要进行执行的loader的这里都会去除掉 // +++
+  // +++
 
+  // 选择需要重新验证的 fetcher.loads
   // Pick fetcher.loads that need to be revalidated
   let revalidatingFetchers: RevalidatingFetcher[] = [];
-  fetchLoadMatches &&
+  fetchLoadMatches && // 一个map
     fetchLoadMatches.forEach(([href, match, fetchMatches], key) => {
       // This fetcher was cancelled from a prior action submission - force reload
       if (cancelledFetcherLoads.includes(key)) {
@@ -2654,41 +2800,52 @@ function getMatchesToLoad(
   return [navigationMatches, revalidatingFetchers];
 }
 
+// 是新的loader
 function isNewLoader(
   currentLoaderData: RouteData,
   currentMatch: AgnosticDataRouteMatch,
   match: AgnosticDataRouteMatch
 ) {
+  // currentMatch 与 现在的match决定是否为新的loader
   let isNew =
     // [a] -> [a, b]
-    !currentMatch ||
+    !currentMatch || // current中没有匹配
     // [a, b] -> [a, c]
-    match.route.id !== currentMatch.route.id;
+    match.route.id !== currentMatch.route.id; // 它俩之间id不相等 // +++
+  // 是新的那么就直接留下
+  // 若不是新的但是loader数据对象中还没有数据那么也需要留下
+  // 而不是新的且有数据啦就不需要留下啦 ~
 
+  // 处理没有重用路由的数据的情况，可能是由于先前的错误或由于取消的挂起的延迟
   // Handle the case that we don't have data for a re-used route, potentially
   // from a prior error or from a cancelled pending deferred
-  let isMissingData = currentLoaderData[match.route.id] === undefined;
+  let isMissingData = currentLoaderData[match.route.id] === undefined; // 是否为undefined // +++
 
+  // 如果这是一条全新的路线或我们还没有数据，请始终加载
   // Always load if this is a net-new route or we don't yet have data
-  return isNew || isMissingData;
+  return isNew || isMissingData; // +++
 }
 
+// 是否为新的路由实例
 function isNewRouteInstance(
   currentMatch: AgnosticDataRouteMatch,
   match: AgnosticDataRouteMatch
 ) {
-  let currentPath = currentMatch.route.path;
+  let currentPath = currentMatch.route.path; // current path
   return (
+    // // 此匹配项的参数更改，/users/123 -> /users/456
     // param change for this match, /users/123 -> /users/456
     currentMatch.pathname !== match.pathname ||
+    // splat 参数已更改，match.path 中不存在
     // splat param changed, which is not present in match.path
     // e.g. /files/images/avatar.jpg -> files/finances.xls
     (currentPath &&
-      currentPath.endsWith("*") &&
-      currentMatch.params["*"] !== match.params["*"])
+      currentPath.endsWith("*") && // 是以*结尾的
+      currentMatch.params["*"] !== match.params["*"]) // 动态参数中两者结果不等 // +++
   );
 }
 
+// 应该重新验证loader
 function shouldRevalidateLoader(
   currentLocation: string | Location,
   currentMatch: AgnosticDataRouteMatch,
@@ -2698,8 +2855,11 @@ function shouldRevalidateLoader(
   isRevalidationRequired: boolean,
   actionResult: DataResult | undefined
 ) {
+  // 当前的 current
   let currentUrl = createURL(currentLocation);
   let currentParams = currentMatch.params;
+
+  // 要去的 to
   let nextUrl = createURL(location);
   let nextParams = match.params;
 
@@ -2709,15 +2869,18 @@ function shouldRevalidateLoader(
   // their own specific use cases
   // Note that fetchers always provide the same current/next locations so the
   // URL-based checks here don't apply to fetcher shouldRevalidate calls
-  let defaultShouldRevalidate =
-    isNewRouteInstance(currentMatch, match) ||
+  let defaultShouldRevalidate = // 默认是否应该重新验证 // +++
+    isNewRouteInstance(currentMatch, match) || // 是否为新的路由实例（路径名前后不一致的）
+    // 单击相同的链接，重新提交 GET 表单
     // Clicked the same link, resubmitted a GET form
-    currentUrl.toString() === nextUrl.toString() ||
+    currentUrl.toString() === nextUrl.toString() || // 是否相等
+    // 搜索参数影响所有加载器
     // Search params affect all loaders
-    currentUrl.search !== nextUrl.search ||
+    currentUrl.search !== nextUrl.search || // 是否不相等
     // Forced revalidation due to submission, useRevalidate, or X-Remix-Revalidate
-    isRevalidationRequired;
+    isRevalidationRequired; // 由于submission、useRevalidate 或 X-Remix-Revalidate 而强制重新生效
 
+  // 是否有shouldRevalidate cb // 这里调用
   if (match.route.shouldRevalidate) {
     let routeChoice = match.route.shouldRevalidate({
       currentUrl,
@@ -2728,14 +2891,17 @@ function shouldRevalidateLoader(
       actionResult,
       defaultShouldRevalidate,
     });
+    // 要求返回值为布尔值
     if (typeof routeChoice === "boolean") {
-      return routeChoice;
+      return routeChoice; // 返回这个布尔值
     }
   }
 
+  // 返回默认的决策 // +++
   return defaultShouldRevalidate;
 }
 
+// 调用loader或action
 async function callLoaderOrAction(
   type: "loader" | "action",
   request: Request,
@@ -2748,6 +2914,7 @@ async function callLoaderOrAction(
   let resultType;
   let result;
 
+  // 设定一个我们可以与之竞争的pro,ise，以便中止信号短路 // +++
   // Setup a promise we can race against so that abort signals short circuit
   let reject: () => void;
   let abortPromise = new Promise((_, r) => (reject = r));
@@ -2755,14 +2922,16 @@ async function callLoaderOrAction(
   request.signal.addEventListener("abort", onReject);
 
   try {
-    let handler = match.route[type];
+    // 取出对应的函数
+    let handler = match.route[type]; // type: loader or action
     invariant<Function>(
       handler,
       `Could not find the ${type} to run on the "${match.route.id}" route`
     );
 
+    // await
     result = await Promise.race([
-      handler({ request, params: match.params }),
+      handler({ request, params: match.params }), // 执行这个handler函数 // +++
       abortPromise,
     ]);
   } catch (e) {
@@ -2772,9 +2941,13 @@ async function callLoaderOrAction(
     request.signal.removeEventListener("abort", onReject);
   }
 
+  // +++
+  // redirect函数的执行结果就是Response的实例对象 // +++
+  // 结果是属于Response的实例对象 // +++
   if (result instanceof Response) {
     let status = result.status;
 
+    // 处理重定向 // +++
     // Process redirects
     if (status >= 300 && status <= 399) {
       let location = result.headers.get("Location");
@@ -2783,6 +2956,8 @@ async function callLoaderOrAction(
         "Redirects returned/thrown from loaders/actions must have a Location header"
       );
 
+      // +++
+      // 在重定向中支持相对路由 // +++
       // Support relative routing in redirects
       let activeMatches = matches.slice(0, matches.indexOf(match) + 1);
       let routePathnames = getPathContributingMatches(activeMatches).map(
@@ -2814,9 +2989,9 @@ async function callLoaderOrAction(
       }
 
       return {
-        type: ResultType.redirect,
-        status,
-        location,
+        type: ResultType.redirect, // +++
+        status, // +++ 状态码
+        location, // +++
         revalidate: result.headers.get("X-Remix-Revalidate") !== null,
       };
     }
@@ -2835,9 +3010,9 @@ async function callLoaderOrAction(
     let data: any;
     let contentType = result.headers.get("Content-Type");
     if (contentType && contentType.startsWith("application/json")) {
-      data = await result.json();
+      data = await result.json(); // +++
     } else {
-      data = await result.text();
+      data = await result.text(); // +++
     }
 
     if (resultType === ResultType.error) {
@@ -2849,10 +3024,10 @@ async function callLoaderOrAction(
     }
 
     return {
-      type: ResultType.data,
-      data,
-      statusCode: result.status,
-      headers: result.headers,
+      type: ResultType.data, // +++
+      data, // +++
+      statusCode: result.status, // +++
+      headers: result.headers, // +++
     };
   }
 
@@ -2860,11 +3035,13 @@ async function callLoaderOrAction(
     return { type: resultType, error: result };
   }
 
+  // 结果是否属于DeferredData的实例对象
   if (result instanceof DeferredData) {
     return { type: ResultType.deferred, deferredData: result };
   }
 
-  return { type: ResultType.data, data: result };
+  // 组合一个对象返回
+  return { type: ResultType.data, data: result /** 作为数据data属性 */ }; // +++
 }
 
 function createRequest(
@@ -2903,6 +3080,7 @@ function convertFormDataToSearchParams(formData: FormData): URLSearchParams {
   return searchParams;
 }
 
+// 处理路由loader数据
 function processRouteLoaderData(
   matches: AgnosticDataRouteMatch[],
   matchesToLoad: AgnosticDataRouteMatch[],
@@ -2915,16 +3093,18 @@ function processRouteLoaderData(
   statusCode: number;
   loaderHeaders: Record<string, Headers>;
 } {
+  // 从我们的加载器中填充 loaderData/errors
   // Fill in loaderData/errors from our loaders
-  let loaderData: RouterState["loaderData"] = {};
+  let loaderData: RouterState["loaderData"] = {}; // 准备的loader数据对象 - 默认为空对象 // +++
   let errors: RouterState["errors"] | null = null;
   let statusCode: number | undefined;
   let foundError = false;
   let loaderHeaders: Record<string, Headers> = {};
 
+  // 处理加载器结果到 state.loaderData/state.errors
   // Process loader results into state.loaderData/state.errors
-  results.forEach((result, index) => {
-    let id = matchesToLoad[index].route.id;
+  results /** // loaderResults // +++ */.forEach((result, index) => {
+    let id = matchesToLoad[index].route.id; // 直接按照筛选出来的匹配结果取出对应route的id属性 // +++
     invariant(
       !isRedirectResult(result),
       "Cannot handle redirect results in processLoaderData"
@@ -2960,7 +3140,7 @@ function processRouteLoaderData(
       loaderData[id] = result.deferredData.data;
       // TODO: Add statusCode/headers once we wire up streaming in Remix
     } else {
-      loaderData[id] = result.data;
+      loaderData[id] = result.data; // 直接把id作为key然后每一个result对象的data属性作为value存入进行loader数据对象中来 ~ // +++
       // Error status codes always override success status codes, but if all
       // loaders are successful we take the deepest status code.
       if (
@@ -2976,6 +3156,7 @@ function processRouteLoaderData(
     }
   });
 
+  // 如果我们没有消耗挂起的操作错误(即，所有加载器都已解析)，那么在这里消耗它
   // If we didn't consume the pending action error (i.e., all loaders
   // resolved), then consume it here
   if (pendingError) {
@@ -2983,13 +3164,14 @@ function processRouteLoaderData(
   }
 
   return {
-    loaderData,
+    loaderData, // 返回这个loader数据对象 // +++
     errors,
     statusCode: statusCode || 200,
     loaderHeaders,
   };
 }
 
+// 处理loader数据 // +++
 function processLoaderData(
   state: RouterState,
   matches: AgnosticDataRouteMatch[],
@@ -3003,14 +3185,17 @@ function processLoaderData(
   loaderData: RouterState["loaderData"];
   errors?: RouterState["errors"];
 } {
+  // 处理路由loader数据 // +++
   let { loaderData, errors } = processRouteLoaderData(
     matches,
-    matchesToLoad,
-    results,
+    matchesToLoad, // +++
+    results, // loaderResults // +++
     pendingError,
     activeDeferreds
   );
+  // 这里实际上就是按照matchesToLoad筛选出来的匹配对象的路由对应的id属性以及结果的数据作为key-value存入一个空对象中 - 把这个对象作为loaderData
 
+  // 处理来自我们重新验证的提取器的结果
   // Process results from our revalidating fetchers
   for (let index = 0; index < revalidatingFetchers.length; index++) {
     let [key, , match] = revalidatingFetchers[index];
@@ -3051,6 +3236,7 @@ function processLoaderData(
     }
   }
 
+  // 返回这个loaderData对象
   return { loaderData, errors };
 }
 
@@ -3145,11 +3331,13 @@ function getMethodNotAllowedResult(path: Location | string): ErrorResult {
   };
 }
 
+// 从最低匹配项开始查找任何返回的重定向错误
 // Find any returned redirect errors, starting from the lowest match
 function findRedirect(results: DataResult[]): RedirectResult | undefined {
+  // 倒序遍历查找
   for (let i = results.length - 1; i >= 0; i--) {
     let result = results[i];
-    if (isRedirectResult(result)) {
+    if (isRedirectResult(result)) { // 注意：一旦找到就return // +++
       return result;
     }
   }
@@ -3174,8 +3362,9 @@ function isErrorResult(result: DataResult): result is ErrorResult {
   return result.type === ResultType.error;
 }
 
+// 是否为重定向结果
 function isRedirectResult(result?: DataResult): result is RedirectResult {
-  return (result && result.type) === ResultType.redirect;
+  return (result && result.type) === ResultType.redirect; // 查看type是否为【重定向】 // +++
 }
 
 function isRedirectResponse(result: any): result is Response {

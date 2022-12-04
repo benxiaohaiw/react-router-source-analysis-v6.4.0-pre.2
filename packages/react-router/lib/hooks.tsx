@@ -865,8 +865,9 @@ function useDataRouterContext(hookName: DataRouterHook) {
   return ctx;
 }
 
+// +++
 function useDataRouterState(hookName: DataRouterStateHook) {
-  let state = React.useContext(DataRouterStateContext);
+  let state = React.useContext(DataRouterStateContext); // 使用的是DataRouterStateContext直接返回state值对象
   invariant(state, getDataRouterConsoleError(hookName));
   return state;
 }
@@ -921,21 +922,25 @@ export function useMatches() {
 }
 
 /**
+ * 返回最近的祖先 Route 加载器的加载器数据 // +++ 其实就是找到最近的祖先RouteContext然后获取它的matches数组中最后一个match，它就表示当前结构对应的route然后取出它的id在我们的loaderData对象中取值就可以啦 ~
+ * /// 这个loaderData对象的整合就是在handleLoaders -> processLoaderData里面按照对应的route的id以及其loader执行后返回的值作为键值对存入对象中，之后这个loaderData对象在completeNavigation -> updateState中更新到state.loaderData中啦
+ * // 而又经过RouterProvider函数式组件中的DataRouterStateContext提供值对象state，然后这个hook使用这个上下文就能够访问到state，然后按照对应的id取出值就表示对应route中loader函数执行的结果啦 ~
  * Returns the loader data for the nearest ancestor Route loader
  */
 export function useLoaderData(): unknown {
-  let state = useDataRouterState(DataRouterStateHook.UseLoaderData);
+  let state = useDataRouterState(DataRouterStateHook.UseLoaderData); // 使用DataRouterStateContext返回state值对象
 
-  let route = React.useContext(RouteContext);
+  let route = React.useContext(RouteContext); // 使用RouteContext然后得到路由上下文对象 // +++
   invariant(route, `useLoaderData must be used inside a RouteContext`);
 
-  let thisRoute = route.matches[route.matches.length - 1];
+  let thisRoute = route.matches[route.matches.length - 1]; // 取出匹配的最后一个元素匹配对象
   invariant(
     thisRoute.route.id,
     `useLoaderData can only be used on routes that contain a unique "id"`
   );
 
-  return state.loaderData[thisRoute.route.id];
+  // +++
+  return state.loaderData[thisRoute.route.id]; // 然后直接在state.loaderData对象中按照这个匹配对象中对应的route的id进行取出loader函数执行后返回的结果即可啦 ~ // +++
 }
 
 /**
